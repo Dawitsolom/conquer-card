@@ -1,0 +1,39 @@
+generator client {
+  provider = "prisma-client-js"
+}
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+model User {
+  id          String   @id @default(cuid())
+  firebaseUid String   @unique
+  name        String
+  email       String   @unique
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  games       GamePlayer[]
+}
+model Game {
+  id           String     @id @default(cuid())
+  roomId       String     @unique
+  status       GameStatus @default(WAITING)
+  maxPlayers   Int        @default(4)
+  currentRound Int        @default(1)
+  maxRounds    Int        @default(10)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  players      GamePlayer[]
+}
+model GamePlayer {
+  id       String   @id @default(cuid())
+  userId   String
+  gameId   String
+  score    Int      @default(0)
+  isWinner Boolean  @default(false)
+  joinedAt DateTime @default(now())
+  user     User     @relation(fields: [userId], references: [id])
+  game     Game     @relation(fields: [gameId], references: [id])
+  @@unique([userId, gameId])
+}
+enum GameStatus { WAITING PLAYING FINISHED }
