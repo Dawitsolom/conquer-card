@@ -1,0 +1,14 @@
+{
+  "name": "@conquer-card/server",
+  "version": "1.0.0",
+  "private": true,
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "ts-node-dev src/index.ts",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@conquer-card/engine": "*"
+  }
+}

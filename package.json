@@ -1,0 +1,26 @@
+{
+  "name": "conquer-card",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "packages/engine",
+    "packages/server",
+    "packages/mobile"
+  ],
+  "scripts": {
+    "test": "npm run test --workspace=packages/engine",
+    "build": "npm run build --workspaces --if-present"
+  },
+  "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "@types/node": "^25.5.0",
+    "@typescript-eslint/eslint-plugin": "^8.57.2",
+    "@typescript-eslint/parser": "^8.57.2",
+    "eslint": "^10.1.0",
+    "eslint-config-prettier": "^10.1.8",
+    "jest": "^30.3.0",
+    "prettier": "^3.8.1",
+    "ts-jest": "^29.4.6",
+    "typescript": "^5.9.3"
+  }
+}
