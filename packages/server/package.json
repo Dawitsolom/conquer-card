@@ -9,6 +9,14 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
-    "@conquer-card/engine": "*"
+    "@conquer-card/engine": "*",
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "socket.io": "^4.8.3"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "ts-node-dev": "^2.0.0"
   }
 }
