@@ -1,39 +1,119 @@
 generator client {
   provider = "prisma-client-js"
 }
+
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
+
+// ── Users ─────────────────────────────────────────────────────────────────────
+
 model User {
-  id          String   @id @default(cuid())
-  firebaseUid String   @unique
-  name        String
-  email       String   @unique
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  games       GamePlayer[]
+  id                      String    @id @default(uuid())
+  firebaseUid             String    @unique
+  displayName             String
+  email                   String?   @unique
+  avatarUrl               String?
+  coinBalance             Int       @default(200)         // never goes negative
+  totalRoundsPlayed       Int       @default(0)
+  totalRoundsWon          Int       @default(0)
+  doubleWins              Int       @default(0)
+  cameraTimeSeconds       Int       @default(0)
+  cameraRewardWindowStart DateTime?
+  cameraTier1Claimed      Boolean   @default(false)
+  cameraTier2Claimed      Boolean   @default(false)
+  ageVerified             Boolean   @default(false)
+  isGuest                 Boolean   @default(false)
+  isBot                   Boolean   @default(false)
+  createdAt               DateTime  @default(now())
+  lastActiveAt            DateTime?
+
+  gamePlayers  GamePlayer[]
+  transactions CoinTransaction[]
 }
-model Game {
-  id           String     @id @default(cuid())
-  roomId       String     @unique
-  status       GameStatus @default(WAITING)
-  maxPlayers   Int        @default(4)
-  currentRound Int        @default(1)
-  maxRounds    Int        @default(10)
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
-  players      GamePlayer[]
+
+// ── Tables ────────────────────────────────────────────────────────────────────
+
+model Table {
+  id            String      @id @default(uuid())
+  isPrivate     Boolean     @default(false)
+  roomCode      String?     @unique
+  betAmount     Int
+  jokerCount    Int         @default(4)         // 0, 2, or 4
+  sequencesOnly Boolean     @default(false)
+  hostUserId    String?
+  status        TableStatus @default(WAITING)
+  createdAt     DateTime    @default(now())
+  closedAt      DateTime?
+
+  rounds Round[]
 }
+
+enum TableStatus {
+  WAITING
+  ACTIVE
+  CLOSED
+}
+
+// ── Rounds ────────────────────────────────────────────────────────────────────
+
+model Round {
+  id           String    @id @default(uuid())
+  tableId      String
+  roundNumber  Int
+  winnerUserId String?
+  winType      WinType?
+  betAmount    Int
+  playerCount  Int
+  startedAt    DateTime?
+  endedAt      DateTime?
+
+  table        Table             @relation(fields: [tableId], references: [id])
+  gamePlayers  GamePlayer[]
+  transactions CoinTransaction[]
+}
+
+enum WinType {
+  NORMAL
+  JOKER
+  PERFECT_HAND
+  FACE_UP_CARD
+}
+
+// ── Game Players ──────────────────────────────────────────────────────────────
+
 model GamePlayer {
-  id       String   @id @default(cuid())
+  id       String   @id @default(uuid())
   userId   String
-  gameId   String
-  score    Int      @default(0)
-  isWinner Boolean  @default(false)
+  roundId  String
+  coinsWon Int      @default(0)   // positive = won, negative = lost
   joinedAt DateTime @default(now())
-  user     User     @relation(fields: [userId], references: [id])
-  game     Game     @relation(fields: [gameId], references: [id])
-  @@unique([userId, gameId])
+
+  user  User  @relation(fields: [userId], references: [id])
+  round Round @relation(fields: [roundId], references: [id])
 }
-enum GameStatus { WAITING PLAYING FINISHED }
+
+// ── Coin Transactions ─────────────────────────────────────────────────────────
+
+model CoinTransaction {
+  id        String          @id @default(uuid())
+  userId    String
+  amount    Int             // positive = credit, negative = debit
+  type      TransactionType
+  roundId   String?
+  createdAt DateTime        @default(now())
+
+  user  User   @relation(fields: [userId], references: [id])
+  round Round? @relation(fields: [roundId], references: [id])
+}
+
+enum TransactionType {
+  BET_LOSS
+  ROUND_WIN
+  DOUBLE_WIN
+  IAP
+  DAILY_BONUS
+  CAMERA_REWARD
+  WELCOME_BONUS
+  FORFEIT
+}
