@@ -4,6 +4,7 @@
   "private": true,
   "workspaces": [
     "packages/engine",
+    "packages/contracts",
     "packages/server",
     "packages/mobile"
   ],

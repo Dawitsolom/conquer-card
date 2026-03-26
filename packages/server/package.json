@@ -6,9 +6,11 @@
   "scripts": {
     "build": "tsc",
     "dev": "ts-node-dev --respawn -r dotenv/config src/index.ts",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "test": "jest"
   },
   "dependencies": {
+    "@conquer-card/contracts": "*",
     "@conquer-card/engine": "*",
     "@prisma/adapter-pg": "^7.5.0",
     "@prisma/client": "^7.5.0",
@@ -24,6 +26,9 @@
   "devDependencies": {
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
+    "@types/jest": "^29.5.14",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.4.6",
     "ts-node-dev": "^2.0.0"
   }
 }
