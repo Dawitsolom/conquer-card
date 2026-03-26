@@ -6,3 +6,5 @@
 export function getEngineStatus(): string {
   return 'Conquer Card engine is running';
 }
+
+export * from './gameState';

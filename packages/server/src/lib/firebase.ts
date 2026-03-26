@@ -9,3 +9,11 @@ if (!admin.apps.length) {
   });
 }
 export default admin;
+
+/** Verify a Firebase ID token and return the decoded claims.
+ *  Throws if the token is expired, revoked, or malformed.
+ *  Java analogy: like calling FirebaseAuth.getInstance().verifyIdToken(token)
+ */
+export async function verifyIdToken(token: string): Promise<admin.auth.DecodedIdToken> {
+  return admin.auth().verifyIdToken(token);
+}

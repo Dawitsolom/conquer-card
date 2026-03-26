@@ -2,59 +2,90 @@ import express from "express";
 import { createServer } from "http";
 import { Server } from "socket.io";
 import cors from "cors";
+import { initSentry } from "./lib/sentry";
 import { getEngineStatus } from "@conquer-card/engine";
-import { authMiddleware } from "./middleware/auth";
-import { registerGameEvents } from "./sockets/gameEvents";
+import { registerAuthMiddleware, registerGameEvents } from "./sockets/gameEvents";
+import authRouter   from "./routes/auth";
+import tablesRouter from "./routes/tables";
+import shopRouter   from "./routes/shop";
+import { authMiddleware, AuthRequest } from "./middleware/auth";
 import { prisma } from "./lib/prisma";
+import { Response } from "express";
 
-const app = express();
+// ── Init ──────────────────────────────────────────────────────────────────────
+
+initSentry();
+
+const app        = express();
 const httpServer = createServer(app);
-const io = new Server(httpServer, { cors: { origin: "*", methods: ["GET","POST"] } });
+const io         = new Server(httpServer, {
+  cors: { origin: "*", methods: ["GET", "POST"] },
+});
 
 app.use(cors());
 app.use(express.json());
 
-// Public routes
+// ── REST routes ───────────────────────────────────────────────────────────────
+
 app.get("/health", (_req, res) => {
   res.json({ status: "ok", engine: getEngineStatus() });
 });
 
-// Protected: create a game room in DB
-app.post("/games", authMiddleware, async (req, res) => {
+app.use("/auth",   authRouter);
+app.use("/tables", tablesRouter);
+app.use("/shop",   shopRouter);
+
+// ── /profile routes ───────────────────────────────────────────────────────────
+
+app.get("/profile/:userId", authMiddleware, async (req: AuthRequest, res: Response): Promise<void> => {
+  const userId = req.params["userId"] as string;
   try {
-    const user = (req as any).user;
-    const roomId = ;
-    const game = await prisma.game.create({
-      data: { roomId, players: { create: { userId: user.id } } },
-      include: { players: true },
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true, displayName: true, avatarUrl: true,
+        coinBalance: true, totalRoundsPlayed: true,
+        totalRoundsWon: true, doubleWins: true, isGuest: true,
+      },
     });
-    res.json(game);
-  } catch (e) { res.status(500).json({ error: "Failed to create game" }); }
+    if (!user) { res.status(404).json({ error: "User not found" }); return; }
+    res.json(user);
+  } catch (err) {
+    console.error("[GET /profile/:userId]", err);
+    res.status(500).json({ error: "Failed to fetch profile" });
+  }
 });
 
-// Protected: get leaderboard
-app.get("/leaderboard", authMiddleware, async (_req, res) => {
+app.patch("/profile/:userId", authMiddleware, async (req: AuthRequest, res: Response): Promise<void> => {
+  const userId = req.params["userId"] as string;
+  if (userId !== req.user!.id) { res.status(403).json({ error: "Cannot edit another user's profile" }); return; }
+  const { displayName, avatarUrl } = req.body as { displayName?: string; avatarUrl?: string };
   try {
-    const users = await prisma.user.findMany({
-      include: { _count: { select: { games: true } } },
-      orderBy: { games: { _count: "desc" } },
-      take: 10,
+    const user = await prisma.user.update({
+      where: { id: userId },
+      data:  { displayName, avatarUrl },
+      select: { id: true, displayName: true, avatarUrl: true },
     });
-    res.json(users);
-  } catch (e) { res.status(500).json({ error: "Failed to fetch leaderboard" }); }
+    res.json(user);
+  } catch (err) {
+    console.error("[PATCH /profile/:userId]", err);
+    res.status(500).json({ error: "Failed to update profile" });
+  }
 });
 
-// Socket.io
+// ── Socket.io ─────────────────────────────────────────────────────────────────
+
+registerAuthMiddleware(io);   // verify Firebase token on every connection
+
 io.on("connection", (socket) => {
-  console.log();
   registerGameEvents(io, socket);
-  socket.on("disconnect", () => console.log());
 });
+
+// ── Start ─────────────────────────────────────────────────────────────────────
 
 const PORT = process.env.PORT ?? 3000;
 httpServer.listen(PORT, () => {
-  console.log();
-  console.log();
+  console.log(`[server] listening on port ${PORT}`);
 });
 
 export { app, io };
