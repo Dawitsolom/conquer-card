@@ -42,9 +42,14 @@ export function useSocket() {
     // and the synchronous cleanup function disconnects whatever was stored.
     // This guarantees the socket is always disconnected on unmount even though
     // the connection itself is asynchronous.
+    let cancelled = false;
+
     const connectWithToken = async () => {
       const user = getAuth().currentUser;
-      const token = user ? await user.getIdToken() : "";
+      if (!user) return;                          // no auth — skip connection entirely
+
+      const token = await user.getIdToken();
+      if (cancelled) return;                      // unmounted while awaiting token
 
       const socket = io(API_URL, {
         transports: ["websocket"],
@@ -102,6 +107,7 @@ export function useSocket() {
     // Cleanup: disconnect whatever socket was stored (works whether connect
     // completed synchronously or is still in flight).
     return () => {
+      cancelled = true;                           // prevent socket creation if still in flight
       socketRef.current?.disconnect();
       socketRef.current = null;
     };

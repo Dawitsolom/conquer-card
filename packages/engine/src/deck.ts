@@ -185,7 +185,7 @@ export function dealCards(
     sequencesOnlyMode: config.sequencesOnlyMode,
     turnStartedAt: Date.now(),
     turnTimeoutSeconds: config.turnTimeoutSeconds,
-    stateVersion: 1,
+    // stateVersion intentionally omitted — setGameState initialises it to 1 on first write
   };
 }
 
