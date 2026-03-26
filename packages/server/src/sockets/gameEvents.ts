@@ -1,7 +1,7 @@
 import { Server, Socket } from "socket.io";
 import { prisma } from "../lib/prisma";
 import { verifyIdToken } from "../lib/firebase";
-import redis, { Keys, getGameState, setGameState, casGameState } from "../lib/redis";
+import redis, { Keys, getGameState, setGameState, casGameState, type CasOutcome } from "../lib/redis";
 import { settleRound } from "../lib/coinLedger";
 import { isBotTurn, takeBotTurn } from "../botAI";
 import {
@@ -184,12 +184,12 @@ function startTurnTimer(io: Server, tableId: string, state: GameState): void {
     }
 
     // Human player timed out: engine auto-draws and discards
-    const newState = handleTimeout(current);
-    await setGameState(tableId, newState);
+    const newState  = handleTimeout(current);
+    const persisted = await setGameState(tableId, newState);
 
     io.to(tableId).emit(SERVER_EVENTS.TURN_TIMEOUT, { playerId: timedOutPlayer.id });
-    await broadcastState(io, newState);
-    startTurnTimer(io, tableId, newState);
+    await broadcastState(io, persisted);
+    startTurnTimer(io, tableId, persisted);
   }, delay);
 
   turnTimers.set(tableId, timer);
@@ -252,9 +252,9 @@ export function registerGameEvents(io: Server, socket: Socket): void {
               p.id === s.userId ? { ...p, status: restored } : p,
             ),
           };
-          await setGameState(tableId, updated);
+          const persisted = await setGameState(tableId, updated);
           io.to(tableId).emit(SERVER_EVENTS.PLAYER_RECONNECTED, { playerId: s.userId });
-          socket.emit(SERVER_EVENTS.STATE_UPDATE, sanitizeForPlayer(updated, s.userId));
+          socket.emit(SERVER_EVENTS.STATE_UPDATE, sanitizeForPlayer(persisted, s.userId));
           return;
         }
       }
@@ -337,10 +337,10 @@ export function registerGameEvents(io: Server, socket: Socket): void {
         tableId, playerIds, displayNames, dealerIndex, config, coinBalances, roundNumber,
       );
 
-      await setGameState(tableId, state);
+      const persisted = await setGameState(tableId, state);
       io.to(tableId).emit(SERVER_EVENTS.ROUND_START, { roundNumber, dealerIndex });
-      await broadcastState(io, state);
-      startTurnTimer(io, tableId, state);
+      await broadcastState(io, persisted);
+      startTurnTimer(io, tableId, persisted);
     } catch (err) {
       console.error("[player:ready]", err);
       socket.emit(SERVER_EVENTS.ERROR, { message: "Failed to start round" });
@@ -401,15 +401,15 @@ export function registerGameEvents(io: Server, socket: Socket): void {
             const payouts      = calculatePayout(newState.betAmount, winType, s.userId, allPlayerIds);
             const finalState: GameState = { ...newState, phase: "round_over" };
 
-            const casResult = await casGameState(tableId, finalState, expectedVersion);
-            if (casResult === "conflict") continue;   // retry
-            if (casResult === "missing") {
+            const casOutcome: CasOutcome = await casGameState(tableId, finalState, expectedVersion);
+            if (casOutcome.result === "conflict") continue;   // retry
+            if (casOutcome.result === "missing") {
               socket.emit(SERVER_EVENTS.ACTION_REJECTED, { reason: "No active game found" });
               return;
             }
 
             clearTurnTimer(tableId);
-            await broadcastState(io, finalState);
+            await broadcastState(io, casOutcome.state);
             io.to(tableId).emit(SERVER_EVENTS.ROUND_OVER, { winnerId: s.userId, winType, payouts });
             void settleRound(tableId, allPlayerIds, s.userId, winType, payouts).catch(
               err => console.error("[settleRound]", err),
@@ -419,16 +419,16 @@ export function registerGameEvents(io: Server, socket: Socket): void {
         }
 
         // Normal action — CAS-write, broadcast, restart timer
-        const casResult = await casGameState(tableId, newState, expectedVersion);
-        if (casResult === "conflict") continue;   // retry with fresh state
-        if (casResult === "missing") {
+        const casOutcome: CasOutcome = await casGameState(tableId, newState, expectedVersion);
+        if (casOutcome.result === "conflict") continue;   // retry with fresh state
+        if (casOutcome.result === "missing") {
           socket.emit(SERVER_EVENTS.ACTION_REJECTED, { reason: "No active game found" });
           return;
         }
 
         clearTurnTimer(tableId);
-        await broadcastState(io, newState);
-        startTurnTimer(io, tableId, newState);
+        await broadcastState(io, casOutcome.state);
+        startTurnTimer(io, tableId, casOutcome.state);
         return; // success
 
       } catch (err) {
@@ -474,8 +474,8 @@ export function registerGameEvents(io: Server, socket: Socket): void {
           p.id === s.userId ? { ...p, cameraOn } : p,
         ),
       };
-      await setGameState(tableId, updated);
-      await broadcastState(io, updated);
+      const persisted = await setGameState(tableId, updated);
+      await broadcastState(io, persisted);
     } catch (err) {
       console.error("[player:camera_toggle]", err);
     }

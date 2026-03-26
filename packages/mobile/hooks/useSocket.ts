@@ -37,6 +37,11 @@ export function useSocket() {
     // Auth: get the current Firebase ID token and pass it in handshake.auth.
     // The server's io.use() middleware requires this — connections without a
     // token are rejected immediately.
+    //
+    // The socket is created inside the async call, so we store it in a ref
+    // and the synchronous cleanup function disconnects whatever was stored.
+    // This guarantees the socket is always disconnected on unmount even though
+    // the connection itself is asynchronous.
     const connectWithToken = async () => {
       const user = getAuth().currentUser;
       const token = user ? await user.getIdToken() : "";
@@ -90,11 +95,16 @@ export function useSocket() {
       socket.on(SERVER_EVENTS.ERROR, (p: ErrorPayload) => {
         setError(p.message);
       });
-
-      return () => { socket.disconnect(); };
     };
 
     void connectWithToken();
+
+    // Cleanup: disconnect whatever socket was stored (works whether connect
+    // completed synchronously or is still in flight).
+    return () => {
+      socketRef.current?.disconnect();
+      socketRef.current = null;
+    };
   }, []);
 
   // ── Emit helpers ────────────────────────────────────────────────────────────

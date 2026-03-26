@@ -66,31 +66,39 @@ beforeEach(() => {
 // ── casGameState ──────────────────────────────────────────────────────────────
 
 describe("casGameState", () => {
-  test("returns 'ok' when Lua script confirms version match (result=1)", async () => {
+  test("returns { result: 'ok', state } when Lua script confirms version match (result=1)", async () => {
     redisMock().eval.mockResolvedValue(1);
-    const result = await casGameState("table-1", BASE_STATE, 1);
-    expect(result).toBe("ok");
+    const outcome = await casGameState("table-1", BASE_STATE, 1);
+    expect(outcome.result).toBe("ok");
+    expect("state" in outcome && outcome.state).toBeDefined();
   });
 
-  test("returns 'conflict' when version has advanced (result=0)", async () => {
+  test("returns { result: 'conflict' } when version has advanced (result=0)", async () => {
     redisMock().eval.mockResolvedValue(0);
-    const result = await casGameState("table-1", BASE_STATE, 1);
-    expect(result).toBe("conflict");
+    const outcome = await casGameState("table-1", BASE_STATE, 1);
+    expect(outcome.result).toBe("conflict");
   });
 
-  test("returns 'missing' when Redis key does not exist (result=-1)", async () => {
+  test("returns { result: 'missing' } when Redis key does not exist (result=-1)", async () => {
     redisMock().eval.mockResolvedValue(-1);
-    const result = await casGameState("table-1", BASE_STATE, 1);
-    expect(result).toBe("missing");
+    const outcome = await casGameState("table-1", BASE_STATE, 1);
+    expect(outcome.result).toBe("missing");
   });
 
-  test("returns 'conflict' on Lua parse error (result=-2)", async () => {
+  test("returns { result: 'conflict' } on Lua parse error (result=-2)", async () => {
     redisMock().eval.mockResolvedValue(-2);
-    const result = await casGameState("table-1", BASE_STATE, 1);
-    expect(result).toBe("conflict");
+    const outcome = await casGameState("table-1", BASE_STATE, 1);
+    expect(outcome.result).toBe("conflict");
   });
 
-  test("writes state with stateVersion incremented by 1", async () => {
+  test("committed state has stateVersion incremented by 1", async () => {
+    redisMock().eval.mockResolvedValue(1);
+    const outcome = await casGameState("table-1", { ...BASE_STATE, stateVersion: 5 }, 5);
+    expect(outcome.result).toBe("ok");
+    if (outcome.result === "ok") expect(outcome.state.stateVersion).toBe(6);
+  });
+
+  test("written JSON in Redis also has stateVersion incremented by 1", async () => {
     redisMock().eval.mockResolvedValue(1);
     await casGameState("table-1", { ...BASE_STATE, stateVersion: 5 }, 5);
 
@@ -122,11 +130,11 @@ describe("casGameState", () => {
       .mockResolvedValueOnce(1)   // Player A's write: version matches → ok
       .mockResolvedValueOnce(0);  // Player B's write: version already advanced → conflict
 
-    const resultA = await casGameState("table-1", BASE_STATE, 1);
-    const resultB = await casGameState("table-1", BASE_STATE, 1); // same stale version
+    const outcomeA = await casGameState("table-1", BASE_STATE, 1);
+    const outcomeB = await casGameState("table-1", BASE_STATE, 1); // same stale version
 
-    expect(resultA).toBe("ok");
-    expect(resultB).toBe("conflict");
+    expect(outcomeA.result).toBe("ok");
+    expect(outcomeB.result).toBe("conflict");
   });
 
   test("simulates retry: conflict on attempt 1, ok on attempt 2 (fresh read)", async () => {
@@ -138,8 +146,8 @@ describe("casGameState", () => {
     // Simulate caller re-reading state and retrying with updated version
     const attempt2 = await casGameState("table-1", { ...BASE_STATE, stateVersion: 2 }, 2);
 
-    expect(attempt1).toBe("conflict");
-    expect(attempt2).toBe("ok");
+    expect(attempt1.result).toBe("conflict");
+    expect(attempt2.result).toBe("ok");
   });
 });
 

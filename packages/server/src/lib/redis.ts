@@ -38,10 +38,15 @@ export async function getGameState(tableId: string): Promise<GameState | null> {
   return JSON.parse(raw) as GameState;
 }
 
-/** Persist the full GameState. Auto-increments stateVersion on every write. */
-export async function setGameState(tableId: string, state: GameState): Promise<void> {
+/**
+ * Persist the full GameState. Auto-increments stateVersion on every write.
+ * Returns the persisted state (with the new version) so callers can broadcast
+ * the exact value stored in Redis rather than a stale pre-increment copy.
+ */
+export async function setGameState(tableId: string, state: GameState): Promise<GameState> {
   const versioned: GameState = { ...state, stateVersion: (state.stateVersion ?? 0) + 1 };
   await redis.set(Keys.gameState(tableId), JSON.stringify(versioned), "EX", GAME_STATE_TTL_SECONDS);
+  return versioned;
 }
 
 // ── Compare-and-Set ───────────────────────────────────────────────────────────
@@ -72,6 +77,13 @@ return 1
 
 export type CasResult = "ok" | "conflict" | "missing";
 
+/** Returned by casGameState — the committed state is provided on success so
+ *  callers can broadcast the exact version stored in Redis. */
+export type CasOutcome =
+  | { result: "ok";       state: GameState }
+  | { result: "conflict"                   }
+  | { result: "missing"                    };
+
 /**
  * Atomically write newState only if the current Redis value has stateVersion === expectedVersion.
  * Increments stateVersion in the written value.
@@ -85,7 +97,7 @@ export async function casGameState(
   tableId: string,
   newState: GameState,
   expectedVersion: number,
-): Promise<CasResult> {
+): Promise<CasOutcome> {
   const nextVersion = expectedVersion + 1;
   const versioned: GameState = { ...newState, stateVersion: nextVersion };
   const result = await redis.eval(
@@ -97,9 +109,9 @@ export async function casGameState(
     String(GAME_STATE_TTL_SECONDS),
   ) as number;
 
-  if (result === 1)  return "ok";
-  if (result === -1) return "missing";
-  return "conflict"; // 0 (version mismatch) or -2 (parse error)
+  if (result === 1)  return { result: "ok", state: versioned };
+  if (result === -1) return { result: "missing" };
+  return { result: "conflict" }; // 0 (version mismatch) or -2 (parse error)
 }
 
 /** Remove the GameState when a table closes. */
