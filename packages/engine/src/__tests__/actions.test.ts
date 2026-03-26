@@ -113,6 +113,48 @@ describe('validateAction - ADD_TO_MELD', () => {
   });
 });
 
+describe('validateAction - ADD_TO_MELD (no 5-card limit on table)', () => {
+  function seqMeldState(meldCards: Card[], cardToAdd: Card) {
+    const meld: Meld = { id: 'seq1', ownerId: 'p1', type: 'sequence', cards: meldCards };
+    return makeState({
+      allMelds: [meld],
+      players: [makePlayer('p1', [cardToAdd, card('K','hearts')], { status: 'opened', melds: [meld] }), makeState().players[1]],
+    });
+  }
+
+  test('add 8S to 5S-6S-7S sequence → ACCEPTED (extends to 4 cards)', () => {
+    const s = seqMeldState(
+      [card('5','spades'), card('6','spades'), card('7','spades')],
+      card('8','spades',1),
+    );
+    expect(validateAction(s, { type: 'ADD_TO_MELD', playerId: 'p1', meldId: 'seq1', cards: [card('8','spades',1)], position: 'end' }).valid).toBe(true);
+  });
+
+  test('add 10S to end of 5S-6S-7S-8S-9S (already 5 cards) → ACCEPTED (extends beyond 5)', () => {
+    const s = seqMeldState(
+      [card('5','spades'), card('6','spades'), card('7','spades'), card('8','spades'), card('9','spades')],
+      card('10','spades',1),
+    );
+    expect(validateAction(s, { type: 'ADD_TO_MELD', playerId: 'p1', meldId: 'seq1', cards: [card('10','spades',1)], position: 'end' }).valid).toBe(true);
+  });
+
+  test('add 4S to start of 5S-6S-7S-8S-9S (already 5 cards) → ACCEPTED (extends from front)', () => {
+    const s = seqMeldState(
+      [card('5','spades'), card('6','spades'), card('7','spades'), card('8','spades'), card('9','spades')],
+      card('4','spades',1),
+    );
+    expect(validateAction(s, { type: 'ADD_TO_MELD', playerId: 'p1', meldId: 'seq1', cards: [card('4','spades',1)], position: 'start' }).valid).toBe(true);
+  });
+
+  test('add KH to 5S-6S-7S (wrong suit) → REJECTED', () => {
+    const s = seqMeldState(
+      [card('5','spades'), card('6','spades'), card('7','spades')],
+      card('K','hearts'),
+    );
+    expect(validateAction(s, { type: 'ADD_TO_MELD', playerId: 'p1', meldId: 'seq1', cards: [card('K','hearts')], position: 'end' }).valid).toBe(false);
+  });
+});
+
 describe('validateAction - STEAL_JOKER', () => {
   test('valid when player is finishing and meld has joker', () => {
     const meld: Meld = { id: 'm1', ownerId: 'p2', type: 'sequence',
@@ -178,6 +220,60 @@ describe('applyAction - LAY_MELD', () => {
     const meldCards = [card('K','spades'), card('K','hearts'), card('K','diamonds')];
     const next = applyAction(s, { type: 'LAY_MELD', playerId: 'p1', cards: meldCards, meldType: 'set' });
     expect(next.players[0].faceUpEligible).toBe(false);
+  });
+});
+
+describe('validateAction - DISCARD (playable card block)', () => {
+  // Helper: a player who owns a 5S-6S-7S sequence on the table
+  // 8S extends the right end of a 5S-6S-7S sequence
+  function stateWithOwnSequence(playerStatus: 'opened' | 'finishing') {
+    const seq: Meld = {
+      id: 'meld-seq', ownerId: 'p1', type: 'sequence',
+      cards: [card('5','spades'), card('6','spades'), card('7','spades')],
+    };
+    const hand = playerStatus === 'finishing'
+      ? [card('8','spades',1)]
+      : [card('8','spades',1), card('K','hearts')];
+    return makeState({
+      allMelds: [seq],
+      players: [makePlayer('p1', hand, { status: playerStatus, melds: [seq] }), makeState().players[1]],
+    });
+  }
+
+  test('discard 8S when player owns 5S-6S-7S sequence → REJECTED', () => {
+    const s = stateWithOwnSequence('opened');
+    expect(validateAction(s, { type: 'DISCARD', playerId: 'p1', card: card('8','spades',1) }).valid).toBe(false);
+  });
+
+  test('discard 8S when OPPONENT owns 5S-6S-7S but player has no own melds → ACCEPTED', () => {
+    const seq: Meld = {
+      id: 'meld-opp', ownerId: 'p2', type: 'sequence',
+      cards: [card('5','spades'), card('6','spades'), card('7','spades')],
+    };
+    const c8s = card('8','spades',1);
+    const s = makeState({
+      allMelds: [seq],
+      players: [makePlayer('p1', [c8s, card('K','hearts')], { status: 'opened' }), makeState().players[1]],
+    });
+    expect(validateAction(s, { type: 'DISCARD', playerId: 'p1', card: c8s }).valid).toBe(true);
+  });
+
+  test('player in finishing status can discard card that fits own meld → ACCEPTED', () => {
+    const s = stateWithOwnSequence('finishing');
+    expect(validateAction(s, { type: 'DISCARD', playerId: 'p1', card: card('8','spades',1) }).valid).toBe(true);
+  });
+});
+
+describe('validateAction - DISCARD (Joker block)', () => {
+  test('discard Joker mid-game → REJECTED', () => {
+    const j = joker(0);
+    const s = makeState({ players: [makePlayer('p1', [j, card('7','spades')], { status: 'opened' }), makeState().players[1]] });
+    expect(validateAction(s, { type: 'DISCARD', playerId: 'p1', card: j }).valid).toBe(false);
+  });
+  test('discard Joker as finishing move → ACCEPTED (double win)', () => {
+    const j = joker(0);
+    const s = makeState({ players: [makePlayer('p1', [j], { status: 'finishing' }), makeState().players[1]] });
+    expect(validateAction(s, { type: 'DISCARD', playerId: 'p1', card: j }).valid).toBe(true);
   });
 });
 

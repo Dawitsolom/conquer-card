@@ -71,6 +71,29 @@ function validateSequence(cards: Card[]): boolean {
   return trySequence(real, jokers.length, false) || trySequence(real, jokers.length, true);
 }
 
+/**
+ * validateSequenceExtension  -  Rules 5.2 (on-table extension, no length limit)
+ *
+ * Used by ADD_TO_MELD and DISCARD validation. Same rules as validateSequence
+ * EXCEPT the 5-card max is removed — once a sequence is on the table it can
+ * grow without bound. Sets never need extension (max 4), so this only applies
+ * to sequences.
+ */
+export function validateSequenceExtension(
+  cards: Card[],
+): { valid: true } | { valid: false; reason: string } {
+  if (cards.length < 3) return { valid: false, reason: 'A meld needs at least 3 cards' };
+  const ids = cards.map(c => c.id);
+  if (new Set(ids).size !== ids.length) return { valid: false, reason: 'Duplicate card IDs' };
+  const real   = cards.filter(c => c.rank !== 'JOKER');
+  const jokers = cards.filter(c => c.rank === 'JOKER');
+  if (jokers.length > 1) return { valid: false, reason: 'At most one Joker per meld' };
+  const suit = real[0]?.suit;
+  if (!suit || real.some(c => c.suit !== suit)) return { valid: false, reason: 'All cards must be the same suit' };
+  const ok = trySequence(real, jokers.length, false) || trySequence(real, jokers.length, true);
+  return ok ? { valid: true } : { valid: false, reason: 'Cards are not consecutive' };
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /**
@@ -141,6 +164,8 @@ export function validateMeld(
  * Java analogy: public static boolean meetsOpeningThreshold(List<List<Card>> melds)
  */
 export function meetsOpeningThreshold(melds: Card[][]): boolean {
+  // Rules 5.3: open with 41+ points OR at least 3 separate melds (any value)
+  if (melds.length >= 3) return true;
   const total = melds.reduce((sum, meld) => sum + calculateMeldValue(meld), 0);
   return total >= 41;
 }

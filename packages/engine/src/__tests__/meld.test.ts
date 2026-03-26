@@ -18,6 +18,17 @@ describe('meetsOpeningThreshold', () => {
   test('51 pts passes',  () => expect(meetsOpeningThreshold([[c('7','spades'),c('7','hearts'),c('7','diamonds')],[c('J','spades'),c('Q','spades'),c('K','spades')]])).toBe(true));
   test('40 pts fails',   () => expect(meetsOpeningThreshold([[c('K','spades'),c('K','hearts'),c('K','diamonds')],[c('2','spades'),c('3','hearts'),c('5','clubs')]])).toBe(false));
   test('exactly 41 passes', () => expect(meetsOpeningThreshold([[c('K','spades'),c('K','hearts'),c('K','diamonds')],[c('A','spades'),c('A','hearts'),c('9','clubs')]])).toBe(true));
+  // 3-meld rule (Rule 2)
+  const s3 = [c('5','spades'),c('6','spades'),c('7','spades')]; // ~15 pts
+  const s4 = [c('2','spades'),c('3','spades'),c('4','spades')]; // ~9 pts
+  const s5 = [c('2','hearts'),c('3','hearts'),c('4','hearts')]; // ~9 pts
+  const s6 = [c('2','diamonds'),c('3','diamonds'),c('4','diamonds')]; // ~9 pts
+  test('3 melds totalling 28 pts → ACCEPTED (3-meld rule)', () => expect(meetsOpeningThreshold([s3, s4, s5])).toBe(true));
+  test('2 melds totalling 45 pts → ACCEPTED (41-pt rule)', () => expect(meetsOpeningThreshold([[c('K','spades'),c('K','hearts'),c('K','diamonds')],[c('A','spades'),c('A','hearts'),c('Q','clubs')]])).toBe(true));
+  test('2 melds totalling 38 pts → REJECTED (neither rule met)', () => expect(meetsOpeningThreshold([[c('K','spades'),c('K','hearts'),c('K','diamonds')],[c('2','spades'),c('3','hearts'),c('4','clubs')]])).toBe(false));
+  test('4 melds totalling 20 pts → ACCEPTED (4 melds >= 3)', () => expect(meetsOpeningThreshold([s3, s4, s5, s6])).toBe(true));
+  test('1 meld totalling 50 pts → ACCEPTED (50 >= 41)', () => expect(meetsOpeningThreshold([[c('K','spades'),c('K','hearts'),c('K','diamonds'),c('A','clubs')]])).toBe(true));
+  test('1 meld totalling 35 pts → REJECTED (1 meld < 3, 35 < 41)', () => expect(meetsOpeningThreshold([[c('K','spades'),c('K','hearts'),c('K','diamonds')]])).toBe(false));
 });
 describe('validateMeld - sets', () => {
   test('3 sevens diff suits = valid',   () => expect(validateMeld([c('7','spades'),c('7','hearts'),c('7','diamonds')],'set',false).valid).toBe(true));

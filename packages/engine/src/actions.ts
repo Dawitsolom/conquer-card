@@ -1,7 +1,6 @@
 import { GameState, GameAction, ValidationResult, Player, Meld, Card } from './types';
-import { validateMeld, meetsOpeningThreshold, calculateMeldValue } from './meld';
+import { validateMeld, validateSequenceExtension } from './meld';
 import { reshuffleDeck } from './deck';
-import { v4 as uuidv4 } from 'uuid';
 
 // =============================================================================
 // actions.ts  -  validateAction + applyAction
@@ -107,10 +106,14 @@ export function validateAction(
         if (!handIds.has(card.id)) return { valid: false, reason: `Card ${card.id} is not in your hand` };
       }
       // Validate the extended meld
+      // Sequences: use validateSequenceExtension (no 5-card limit once on table, Rule 3)
+      // Sets: use validateMeld as normal (sets cap at 4 regardless)
       const newCards = action.position === 'start'
         ? [...action.cards, ...meld.cards]
         : [...meld.cards, ...action.cards];
-      const result = validateMeld(newCards, meld.type, state.sequencesOnlyMode);
+      const result = meld.type === 'sequence'
+        ? validateSequenceExtension(newCards)
+        : validateMeld(newCards, meld.type, state.sequencesOnlyMode);
       if (!result.valid) return { valid: false, reason: `Cannot extend meld: ${result.reason}` };
       return { valid: true };
     }
@@ -147,6 +150,21 @@ export function validateAction(
     case 'DISCARD': {
       const handIds = new Set(player.hand.map(c => c.id));
       if (!handIds.has(action.card.id)) return { valid: false, reason: 'Card is not in your hand' };
+      // Finishing players can discard freely (their last card, even a Joker = double win)
+      if (player.status === 'finishing') return { valid: true };
+      // Joker can never be discarded mid-game (Rules 1b)
+      if (action.card.rank === 'JOKER') return { valid: false, reason: 'Cannot discard a Joker' };
+      // Cannot discard a card that fits one of your own melds (Rule 1)
+      // For sequences: use validateSequenceExtension (no 5-card limit once on table, Rule 3)
+      // For sets: use validateMeld as normal
+      const ownMelds = state.allMelds.filter(m => m.ownerId === player.id);
+      for (const meld of ownMelds) {
+        const checkFit = (cards: Card[]) => meld.type === 'sequence'
+          ? validateSequenceExtension(cards)
+          : validateMeld(cards, meld.type, state.sequencesOnlyMode);
+        if (checkFit([...meld.cards, action.card]).valid) return { valid: false, reason: 'Must add card to your meld' };
+        if (checkFit([action.card, ...meld.cards]).valid) return { valid: false, reason: 'Must add card to your meld' };
+      }
       return { valid: true };
     }
 
