@@ -172,6 +172,7 @@ export function dealCards(
     tableId,
     roundNumber,
     phase: 'active',
+    turnPhase: 'draw',             // first player must draw before anything else
     players,
     activePlayerIndex: (dealerIndex + 1) % playerCount, // first turn = dealer's left
     drawPile,
@@ -184,6 +185,7 @@ export function dealCards(
     sequencesOnlyMode: config.sequencesOnlyMode,
     turnStartedAt: Date.now(),
     turnTimeoutSeconds: config.turnTimeoutSeconds,
+    stateVersion: 1,
   };
 }
 

@@ -1,7 +1,7 @@
 import { Server, Socket } from "socket.io";
 import { prisma } from "../lib/prisma";
 import { verifyIdToken } from "../lib/firebase";
-import redis, { Keys, getGameState, setGameState } from "../lib/redis";
+import redis, { Keys, getGameState, setGameState, casGameState } from "../lib/redis";
 import { settleRound } from "../lib/coinLedger";
 import { isBotTurn, takeBotTurn } from "../botAI";
 import {
@@ -350,6 +350,14 @@ export function registerGameEvents(io: Server, socket: Socket): void {
   // ── game:action ──────────────────────────────────────────────────────────────
   // Client sends: GameAction & { tableId: string }
   // Server overrides playerId with the authenticated userId — never trust client.
+  //
+  // Uses optimistic compare-and-set (CAS) to prevent stale writes.
+  // If two players act simultaneously, one gets 'conflict' and the loop retries
+  // by re-reading fresh state and re-validating. Max 3 attempts before giving up.
+  //
+  // Java analogy:
+  //   @Retryable(maxAttempts=3, include=OptimisticLockException.class)
+  //   public void applyAction(...) { ... }
   socket.on(CLIENT_EVENTS.GAME_ACTION, async (payload: GameActionPayload) => {
     if (isRateLimited(socket.id)) {
       socket.emit(SERVER_EVENTS.ACTION_REJECTED, { reason: "Rate limit exceeded — max 5 actions/second" });
@@ -365,46 +373,73 @@ export function registerGameEvents(io: Server, socket: Socket): void {
     // Override playerId with authenticated userId (CLAUDE.md rule 5)
     const action: GameAction = { ...actionRaw, playerId: s.userId } as GameAction;
 
-    try {
-      const state = await getGameState(tableId);
-      if (!state) { socket.emit(SERVER_EVENTS.ACTION_REJECTED, { reason: "No active game found" }); return; }
+    const MAX_CAS_ATTEMPTS = 3;
 
-      const validation = validateAction(state, action);
-      if (!validation.valid) {
-        socket.emit(SERVER_EVENTS.ACTION_REJECTED, { reason: validation.reason });
-        return;
-      }
-
-      clearTurnTimer(tableId);
-      const newState = applyAction(state, action);
-
-      // Check for win immediately after a DISCARD
-      if (action.type === "DISCARD") {
-        const winType = checkWinCondition(newState, s.userId, (action as DiscardAction).card);
-        if (winType) {
-          const allPlayerIds = newState.players.map(p => p.id);
-          const payouts      = calculatePayout(newState.betAmount, winType, s.userId, allPlayerIds);
-          const finalState: GameState = { ...newState, phase: "round_over" };
-
-          await setGameState(tableId, finalState);
-          await broadcastState(io, finalState);
-          io.to(tableId).emit(SERVER_EVENTS.ROUND_OVER, { winnerId: s.userId, winType, payouts });
-
-          void settleRound(tableId, allPlayerIds, s.userId, winType, payouts).catch(
-            err => console.error("[settleRound]", err),
-          );
+    for (let attempt = 0; attempt < MAX_CAS_ATTEMPTS; attempt++) {
+      try {
+        // Re-read state on every attempt — ensures we validate against latest state
+        const state = await getGameState(tableId);
+        if (!state) {
+          socket.emit(SERVER_EVENTS.ACTION_REJECTED, { reason: "No active game found" });
           return;
         }
-      }
 
-      // Normal action — persist, broadcast, restart timer
-      await setGameState(tableId, newState);
-      await broadcastState(io, newState);
-      startTurnTimer(io, tableId, newState);
-    } catch (err) {
-      console.error("[game:action]", err);
-      socket.emit(SERVER_EVENTS.ACTION_REJECTED, { reason: "Server error processing action" });
+        const validation = validateAction(state, action);
+        if (!validation.valid) {
+          socket.emit(SERVER_EVENTS.ACTION_REJECTED, { reason: validation.reason });
+          return;
+        }
+
+        const newState = applyAction(state, action);
+        const expectedVersion = state.stateVersion ?? 0;
+
+        // Check for win immediately after a DISCARD
+        if (action.type === "DISCARD") {
+          const winType = checkWinCondition(newState, s.userId, (action as DiscardAction).card);
+          if (winType) {
+            const allPlayerIds = newState.players.map(p => p.id);
+            const payouts      = calculatePayout(newState.betAmount, winType, s.userId, allPlayerIds);
+            const finalState: GameState = { ...newState, phase: "round_over" };
+
+            const casResult = await casGameState(tableId, finalState, expectedVersion);
+            if (casResult === "conflict") continue;   // retry
+            if (casResult === "missing") {
+              socket.emit(SERVER_EVENTS.ACTION_REJECTED, { reason: "No active game found" });
+              return;
+            }
+
+            clearTurnTimer(tableId);
+            await broadcastState(io, finalState);
+            io.to(tableId).emit(SERVER_EVENTS.ROUND_OVER, { winnerId: s.userId, winType, payouts });
+            void settleRound(tableId, allPlayerIds, s.userId, winType, payouts).catch(
+              err => console.error("[settleRound]", err),
+            );
+            return;
+          }
+        }
+
+        // Normal action — CAS-write, broadcast, restart timer
+        const casResult = await casGameState(tableId, newState, expectedVersion);
+        if (casResult === "conflict") continue;   // retry with fresh state
+        if (casResult === "missing") {
+          socket.emit(SERVER_EVENTS.ACTION_REJECTED, { reason: "No active game found" });
+          return;
+        }
+
+        clearTurnTimer(tableId);
+        await broadcastState(io, newState);
+        startTurnTimer(io, tableId, newState);
+        return; // success
+
+      } catch (err) {
+        console.error("[game:action]", err);
+        socket.emit(SERVER_EVENTS.ACTION_REJECTED, { reason: "Server error processing action" });
+        return;
+      }
     }
+
+    // All CAS attempts failed — two players were simultaneously racing
+    socket.emit(SERVER_EVENTS.ACTION_REJECTED, { reason: "Concurrent action conflict — please retry" });
   });
 
   // ── table:leave ──────────────────────────────────────────────────────────────
