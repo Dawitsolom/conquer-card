@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { io, Socket } from "socket.io-client";
-import { getAuth } from "firebase/auth";
+import { auth, isFirebaseConfigured } from "../lib/firebase";
 import { useGameStore } from "../store/gameStore";
 import {
   CLIENT_EVENTS,
@@ -45,7 +45,9 @@ export function useSocket() {
     let cancelled = false;
 
     const connectWithToken = async () => {
-      const user = getAuth().currentUser;
+      if (!isFirebaseConfigured || !auth) return;
+
+      const user = auth.currentUser;
       if (!user) return;                          // no auth — skip connection entirely
 
       const token = await user.getIdToken();
