@@ -13,7 +13,8 @@
     "build": "npm run build --workspaces --if-present"
   },
   "overrides": {
-    "metro": "0.81.5"
+    "metro": "0.81.5",
+    "@types/react": "~19.0.10"
   },
   "devDependencies": {
     "metro": "0.81.5",
