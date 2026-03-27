@@ -1,18 +1,39 @@
-import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
+import { useState } from "react";
+import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, Alert } from "react-native";
 import { useRouter } from "expo-router";
-import { signOut } from "firebase/auth";
+import { signOut, getAuth } from "firebase/auth";
 import { auth } from "../lib/firebase";
 import { useGameStore } from "../store/gameStore";
 import { trackEvent } from "../hooks/useAnalytics";
 
+const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:3000";
+
 export default function HomeScreen() {
   const router = useRouter();
   const { playerName, reset } = useGameStore();
+  const [creating, setCreating] = useState(false);
 
-  const handleCreateGame = () => {
-    const roomId = ;
-    trackEvent("game_created", { roomId });
-    router.push();
+  const handleCreateGame = async () => {
+    setCreating(true);
+    try {
+      const token = await getAuth().currentUser?.getIdToken();
+      const res = await fetch(`${API_URL}/tables`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token ?? ""}`,
+        },
+        body: JSON.stringify({ betAmount: 100, jokerCount: 2 }),
+      });
+      if (!res.ok) throw new Error(`Server error ${res.status}`);
+      const { tableId } = (await res.json()) as { tableId: string };
+      trackEvent("game_created", { tableId });
+      router.push(`/game/${tableId}`);
+    } catch (e: unknown) {
+      Alert.alert("Error", e instanceof Error ? e.message : "Could not create game");
+    } finally {
+      setCreating(false);
+    }
   };
 
   const handleSignOut = async () => {
@@ -26,8 +47,10 @@ export default function HomeScreen() {
       <Text style={styles.subtitle}>Ethiopian Social Card Game</Text>
       <Text style={styles.welcome}>Welcome, {playerName || "Player"}!</Text>
 
-      <TouchableOpacity style={styles.button} onPress={handleCreateGame}>
-        <Text style={styles.buttonText}>🎮 Create Game</Text>
+      <TouchableOpacity style={styles.button} onPress={handleCreateGame} disabled={creating}>
+        {creating
+          ? <ActivityIndicator color="#fff" />
+          : <Text style={styles.buttonText}>🎮 Create Game</Text>}
       </TouchableOpacity>
 
       <TouchableOpacity style={[styles.button, styles.secondary]} onPress={() => router.push("/leaderboard")}>

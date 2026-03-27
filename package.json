@@ -12,6 +12,9 @@
     "test": "npm run test --workspace=packages/engine",
     "build": "npm run build --workspaces --if-present"
   },
+  "overrides": {
+    "@types/react": "~18.3.0"
+  },
   "devDependencies": {
     "@types/jest": "^29.5.0",
     "@types/node": "^25.5.0",
