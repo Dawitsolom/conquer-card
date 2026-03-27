@@ -13,14 +13,15 @@
     "@conquer-card/contracts": "*",
     "@conquer-card/engine": "*",
     "@sentry/react-native": "^6.0.0",
-    "zustand": "^5.0.0",
+    "@types/react": "~19.0.10",
     "expo": "~53.0.0",
+    "expo-router": "~5.1.11",
     "expo-status-bar": "~2.2.0",
-    "expo-router": "~4.0.0",
-    "react": "18.3.1",
-    "react-native": "0.76.9",
     "firebase": "^11.0.0",
-    "socket.io-client": "^4.8.0"
+    "react": "19.0.0",
+    "react-native": "0.79.6",
+    "socket.io-client": "^4.8.0",
+    "zustand": "^5.0.0"
   },
   "devDependencies": {
     "@babel/core": "^7.24.0",
