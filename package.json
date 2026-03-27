@@ -13,9 +13,11 @@
     "build": "npm run build --workspaces --if-present"
   },
   "overrides": {
-    "@types/react": "~18.3.0"
+    "@types/react": "~18.3.0",
+    "metro": "0.81.5"
   },
   "devDependencies": {
+    "metro": "0.81.5",
     "@types/jest": "^29.5.0",
     "@types/node": "^25.5.0",
     "@typescript-eslint/eslint-plugin": "^8.57.2",
