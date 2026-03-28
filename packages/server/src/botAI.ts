@@ -5,7 +5,6 @@ import {
   applyAction,
   validateMeld,
   meetsOpeningThreshold,
-  calculateMeldValue,
 } from "@conquer-card/engine";
 import type {
   GameState,
@@ -209,7 +208,7 @@ export async function takeBotTurn(
 
   const meldsToLay = chooseMeldsToLay(updatedPlayer, state);
   for (const { cards, meldType } of meldsToLay) {
-    const meldAction: GameAction = { type: "LAY_MELD", playerId: botId, cards, meldType };
+    const meldAction: GameAction = { type: "LAY_MELD", playerId: botId, melds: [{ cards, meldType }] };
     const meldValidation = validateAction(state, meldAction);
     if (!meldValidation.valid) continue;
     state = applyAction(state, meldAction);

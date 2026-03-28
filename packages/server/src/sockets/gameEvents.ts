@@ -297,10 +297,10 @@ export function registerGameEvents(io: Server, socket: Socket): void {
         select: { id: true, displayName: true, coinBalance: true },
       });
       const displayNames: string[] = playerIds.map(
-        uid => users.find(u => u.id === uid)?.displayName ?? "Player",
+        uid => users.find((u: { id: string; displayName: string; coinBalance: number }) => u.id === uid)?.displayName ?? "Player",
       );
       const coinBalances: Record<string, number> = Object.fromEntries(
-        users.map(u => [u.id, u.coinBalance]),
+        users.map((u: { id: string; displayName: string; coinBalance: number }) => [u.id, u.coinBalance]),
       );
 
       const config: TableConfig = {
