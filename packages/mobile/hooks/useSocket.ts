@@ -19,12 +19,13 @@ import { useGameStore } from "../store/gameStore";
 import { useAuthStore } from "../store/authStore";
 import { CLIENT_EVENTS } from "@conquer-card/contracts";
 import type { GameAction } from "@conquer-card/engine";
+import type { ClientGameState } from "@conquer-card/contracts";
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:3000";
 
 export function useSocket() {
   const socketRef  = useRef<Socket | null>(null);
-  const { setConnected } = useGameStore();
+  const { setConnected, setGameState, tableId } = useGameStore();
   const jwt = useAuthStore(s => s.jwt);
 
   useEffect(() => {
@@ -36,7 +37,25 @@ export function useSocket() {
     });
     socketRef.current = socket;
 
-    socket.on("connect",    () => setConnected(true));
+    socket.on("connect", () => {
+      setConnected(true);
+      // On reconnect: re-join the active table and fetch current game state.
+      // This handles both initial connect and transparent reconnects after drops.
+      const currentTableId = useGameStore.getState().tableId;
+      if (currentTableId) {
+        socket.emit(CLIENT_EVENTS.JOIN_TABLE, { tableId: currentTableId });
+        // Fetch full state via REST in case socket missed events during disconnect.
+        void fetch(`${API_URL}/tables/${currentTableId}/state`, {
+          headers: { Authorization: `Bearer ${jwt}` },
+        })
+          .then(r => r.ok ? r.json() : null)
+          .then((state: ClientGameState | null) => {
+            if (state) setGameState(state);
+          })
+          .catch(() => {});   // non-fatal — server will push STATE_UPDATE on join
+      }
+    });
+
     socket.on("disconnect", () => setConnected(false));
 
     return () => {
