@@ -14,7 +14,7 @@ import type {
   ClientGameState,
   RoundOverPayload,
   TurnChangedPayload,
-} from "@conquer-card/contracts";
+} from "../../contracts/dist";
 
 interface GameStore {
   // ── Server state ─────────────────────────────────────────────────────────────

@@ -7,9 +7,9 @@
 // Java analogy: a @Service that generates UI tooltip text from view-model state.
 // =============================================================================
 
-import { calculateMeldValue, meetsOpeningThreshold } from "@conquer-card/engine";
-import type { Card, MeldType } from "@conquer-card/engine";
-import type { OwnClientPlayer } from "@conquer-card/contracts";
+import { calculateMeldValue, meetsOpeningThreshold } from "../../engine/dist";
+import type { Card, MeldType } from "../../engine/dist";
+import type { OwnClientPlayer } from "../../contracts/dist";
 
 export type HintContext = {
   myPlayer:      OwnClientPlayer | null;

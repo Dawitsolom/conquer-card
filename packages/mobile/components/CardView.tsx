@@ -1,6 +1,6 @@
 import { TouchableOpacity, Text, StyleSheet, Animated } from "react-native";
 import { useRef } from "react";
-import type { Card } from "@conquer-card/engine";
+import type { Card } from "../../engine/dist";
 
 const SUIT_SYMBOLS: Record<string, string> = {
   coins: "🪙",

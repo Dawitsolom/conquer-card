@@ -17,9 +17,9 @@ import { useEffect, useRef } from "react";
 import { io, Socket } from "socket.io-client";
 import { useGameStore } from "../store/gameStore";
 import { useAuthStore } from "../store/authStore";
-import { CLIENT_EVENTS } from "@conquer-card/contracts";
-import type { GameAction } from "@conquer-card/engine";
-import type { ClientGameState } from "@conquer-card/contracts";
+import { CLIENT_EVENTS } from "../../contracts/dist";
+import type { GameAction } from "../../engine/dist";
+import type { ClientGameState } from "../../contracts/dist";
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:3000";
 

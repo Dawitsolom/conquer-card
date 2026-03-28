@@ -20,9 +20,9 @@ import { useGameStore } from "../../store/gameStore";
 import { useAuthStore } from "../../store/authStore";
 import { useSocket } from "../../hooks/useSocket";
 import { useGameEvents } from "../../hooks/useGameEvents";
-import { isOwnPlayer } from "@conquer-card/contracts";
-import type { ClientPlayer, OwnClientPlayer } from "@conquer-card/contracts";
-import type { Card, MeldType } from "@conquer-card/engine";
+import { isOwnPlayer } from "../../../contracts/dist";
+import type { ClientPlayer, OwnClientPlayer } from "../../../contracts/dist";
+import type { Card, MeldType } from "../../../engine/dist";
 import {
   getHintMessage,
   getDiscardLockReason,
