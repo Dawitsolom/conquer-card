@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { io, Socket } from "socket.io-client";
-import { getAuth } from "firebase/auth";
 import { useGameStore } from "../store/gameStore";
+import { useAuthStore } from "../store/authStore";
 import {
   CLIENT_EVENTS,
   SERVER_EVENTS,
@@ -32,86 +32,70 @@ export function useSocket() {
     setTurnInfo,
     setError,
   } = useGameStore();
+  const jwt = useAuthStore(s => s.jwt);
 
   useEffect(() => {
-    // Auth: get the current Firebase ID token and pass it in handshake.auth.
-    // The server's io.use() middleware requires this — connections without a
-    // token are rejected immediately.
-    //
-    // The socket is created inside the async call, so we store it in a ref
-    // and the synchronous cleanup function disconnects whatever was stored.
-    // This guarantees the socket is always disconnected on unmount even though
-    // the connection itself is asynchronous.
-    let cancelled = false;
+    // Auth: pass the app JWT (from authStore) in the Socket.io handshake.
+    // The server's io.use() middleware verifies this token on every connection.
+    // We use the app JWT (not the Firebase ID token directly) so the server
+    // only needs to verify one token type for both REST and WebSocket.
+    if (!jwt) return;                             // not authenticated — skip
 
-    const connectWithToken = async () => {
-      const user = getAuth().currentUser;
-      if (!user) return;                          // no auth — skip connection entirely
+    const socket = io(API_URL, {
+      transports: ["websocket"],
+      auth: { token: jwt },   // ← required by server auth middleware
+    });
+    socketRef.current = socket;
 
-      const token = await user.getIdToken();
-      if (cancelled) return;                      // unmounted while awaiting token
+    socket.on("connect",    () => setConnected(true));
+    socket.on("disconnect", () => setConnected(false));
 
-      const socket = io(API_URL, {
-        transports: ["websocket"],
-        auth: { token },        // ← required by server auth middleware
-      });
-      socketRef.current = socket;
+    // Primary state update — personalised per-player payload from sanitizeForPlayer
+    socket.on(SERVER_EVENTS.STATE_UPDATE, (state: ClientGameState) => {
+      setGameState(state);
+    });
 
-      socket.on("connect",    () => setConnected(true));
-      socket.on("disconnect", () => setConnected(false));
+    // Round lifecycle
+    socket.on(SERVER_EVENTS.ROUND_START, (_payload: RoundStartPayload) => {
+      // UI can react to round start independently (e.g. deal animation).
+      // State arrives via STATE_UPDATE immediately after.
+    });
 
-      // Primary state update — personalised per-player payload from sanitizeForPlayer
-      socket.on(SERVER_EVENTS.STATE_UPDATE, (state: ClientGameState) => {
-        setGameState(state);
-      });
+    socket.on(SERVER_EVENTS.ROUND_OVER, (payload: RoundOverPayload) => {
+      setRoundResult(payload);
+    });
 
-      // Round lifecycle
-      socket.on(SERVER_EVENTS.ROUND_START, (_payload: RoundStartPayload) => {
-        // UI can react to round start independently (e.g. deal animation).
-        // State arrives via STATE_UPDATE immediately after.
-      });
+    // Turn timer info — lets the UI show a countdown bar
+    socket.on(SERVER_EVENTS.TURN_CHANGED, (payload: TurnChangedPayload) => {
+      setTurnInfo(payload);
+    });
 
-      socket.on(SERVER_EVENTS.ROUND_OVER, (payload: RoundOverPayload) => {
-        setRoundResult(payload);
-      });
+    socket.on(SERVER_EVENTS.TURN_TIMEOUT, (_payload: TurnTimeoutPayload) => {
+      // State arrives via STATE_UPDATE; UI can show a brief "timed out" toast.
+    });
 
-      // Turn timer info — lets the UI show a countdown bar
-      socket.on(SERVER_EVENTS.TURN_CHANGED, (payload: TurnChangedPayload) => {
-        setTurnInfo(payload);
-      });
+    // Player presence events — UI updates (seat indicators, etc.)
+    socket.on(SERVER_EVENTS.PLAYER_JOINED,       (_p: PlayerJoinedPayload)       => {});
+    socket.on(SERVER_EVENTS.PLAYER_LEFT,         (_p: PlayerLeftPayload)         => {});
+    socket.on(SERVER_EVENTS.PLAYER_DISCONNECTED, (_p: PlayerDisconnectedPayload) => {});
+    socket.on(SERVER_EVENTS.PLAYER_RECONNECTED,  (_p: { playerId: string })      => {});
 
-      socket.on(SERVER_EVENTS.TURN_TIMEOUT, (_payload: TurnTimeoutPayload) => {
-        // State arrives via STATE_UPDATE; UI can show a brief "timed out" toast.
-      });
+    // Emoji reactions
+    socket.on(SERVER_EVENTS.EMOJI_REACTION, (_p: EmojiReactionPayload) => {});
 
-      // Player presence events — UI updates (seat indicators, etc.)
-      socket.on(SERVER_EVENTS.PLAYER_JOINED,       (_p: PlayerJoinedPayload)       => {});
-      socket.on(SERVER_EVENTS.PLAYER_LEFT,         (_p: PlayerLeftPayload)         => {});
-      socket.on(SERVER_EVENTS.PLAYER_DISCONNECTED, (_p: PlayerDisconnectedPayload) => {});
-      socket.on(SERVER_EVENTS.PLAYER_RECONNECTED,  (_p: { playerId: string })      => {});
+    // Errors
+    socket.on(SERVER_EVENTS.ACTION_REJECTED, (p: ActionRejectedPayload) => {
+      setError(p.reason);
+    });
+    socket.on(SERVER_EVENTS.ERROR, (p: ErrorPayload) => {
+      setError(p.message);
+    });
 
-      // Emoji reactions
-      socket.on(SERVER_EVENTS.EMOJI_REACTION, (_p: EmojiReactionPayload) => {});
-
-      // Errors
-      socket.on(SERVER_EVENTS.ACTION_REJECTED, (p: ActionRejectedPayload) => {
-        setError(p.reason);
-      });
-      socket.on(SERVER_EVENTS.ERROR, (p: ErrorPayload) => {
-        setError(p.message);
-      });
-    };
-
-    void connectWithToken();
-
-    // Cleanup: disconnect whatever socket was stored (works whether connect
-    // completed synchronously or is still in flight).
     return () => {
-      cancelled = true;                           // prevent socket creation if still in flight
-      socketRef.current?.disconnect();
+      socket.disconnect();
       socketRef.current = null;
     };
-  }, []);
+  }, [jwt]);  // reconnect when JWT changes (e.g. token refresh)
 
   // ── Emit helpers ────────────────────────────────────────────────────────────
 

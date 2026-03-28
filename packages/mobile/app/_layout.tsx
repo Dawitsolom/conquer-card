@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import * as Sentry from "@sentry/react-native";
 import { auth } from "../lib/firebase";
-import { useGameStore } from "../store/gameStore";
+import { useAuthStore } from "../store/authStore";
 import { trackEvent, identifyUser } from "../hooks/useAnalytics";
 
 Sentry.init({
@@ -14,19 +14,21 @@ Sentry.init({
 export default function RootLayout() {
   const router = useRouter();
   const segments = useSegments();
-  const { setPlayerId, setPlayerName } = useGameStore();
+  const { logout } = useAuthStore();
   const [authChecked, setAuthChecked] = useState(false);
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (user) => {
+    // Firebase auth state tells us whether a session still exists.
+    // If Firebase says signed out we clear the store too.
+    // JWT is populated by login.tsx via authService — not here.
+    const unsub = onAuthStateChanged(auth, (firebaseUser) => {
       const inAuthGroup = segments[0] === "login";
-      if (user) {
-        setPlayerId(user.uid);
-        setPlayerName(user.displayName ?? "Player");
-        identifyUser(user.uid, user.displayName ?? "Player", user.email ?? "");
-        trackEvent("app_opened", { userId: user.uid });
+      if (firebaseUser) {
+        identifyUser(firebaseUser.uid, firebaseUser.displayName ?? "Player", firebaseUser.email ?? "");
+        trackEvent("app_opened", { userId: firebaseUser.uid });
         if (inAuthGroup) router.replace("/");
       } else {
+        logout();
         if (!inAuthGroup) router.replace("/login");
       }
       setAuthChecked(true);
