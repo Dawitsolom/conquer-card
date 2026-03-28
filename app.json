@@ -1,0 +1,35 @@
+{
+  "expo": {
+    "name": "Conquer Card",
+    "slug": "conquer-card",
+    "scheme": "conquercard",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./packages/mobile/assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "image": "./packages/mobile/assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#1a1a2e"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.conquercard.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./packages/mobile/assets/adaptive-icon.png",
+        "backgroundColor": "#1a1a2e"
+      },
+      "package": "com.conquercard.app"
+    },
+    "web": {
+      "favicon": "./packages/mobile/assets/favicon.png"
+    },
+    "plugins": ["expo-router"],
+    "experiments": {
+      "typedRoutes": false
+    },
+    "newArchEnabled": false
+  }
+}
