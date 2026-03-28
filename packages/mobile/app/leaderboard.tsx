@@ -14,8 +14,9 @@ export default function LeaderboardScreen() {
   useEffect(() => {
     const fetchLeaderboard = async () => {
       try {
-        const res = await fetch(, {
-          headers: { Authorization:  },
+        const token = "";   // TODO Step 2: read JWT from authStore
+        const res = await fetch(`${API_URL}/history/${playerId}`, {
+          headers: { Authorization: `Bearer ${token}` },
         });
         const json = await res.json() as LeaderboardEntry[];
         setData(json);

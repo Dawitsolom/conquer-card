@@ -10,9 +10,9 @@ export default function HomeScreen() {
   const { playerName, reset } = useGameStore();
 
   const handleCreateGame = () => {
-    const roomId = ;
-    trackEvent("game_created", { roomId });
-    router.push();
+    // TODO Step 5: POST /tables/create then navigate
+    trackEvent("game_created", {});
+    router.push("/game/new");
   };
 
   const handleSignOut = async () => {
