@@ -1,27 +1,21 @@
 {
-  "name": "mobile",
+  "name": "conquercard",
   "version": "1.0.0",
   "main": "expo-router/entry",
   "scripts": {
-    "start": "EXPO_ROUTER_APP_ROOT=./app EXPO_ROUTER_IMPORT_MODE=sync expo start",
-    "android": "EXPO_ROUTER_APP_ROOT=./app EXPO_ROUTER_IMPORT_MODE=sync expo start --android",
-    "ios": "EXPO_ROUTER_APP_ROOT=./app EXPO_ROUTER_IMPORT_MODE=sync expo start --ios",
-    "web": "EXPO_ROUTER_APP_ROOT=./app EXPO_ROUTER_IMPORT_MODE=sync expo start --web"
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web"
   },
   "dependencies": {
-    "@conquer-card/contracts": "^1.0.0",
-    "@conquer-card/engine": "^1.0.0",
-    "@react-navigation/native": "^7.2.1",
-    "expo": "~55.0.9",
-    "expo-router": "~55.0.8",
-    "expo-status-bar": "~55.0.4",
-    "firebase": "^12.11.0",
+    "expo": "55.0.10-canary-20260327-0789fbc",
+    "expo-router": "55.0.9-canary-20260327-0789fbc",
+    "expo-status-bar": "55.0.5-canary-20260327-0789fbc",
     "react": "19.2.0",
     "react-native": "0.83.4",
     "react-native-safe-area-context": "~5.6.2",
-    "react-native-screens": "~4.23.0",
-    "socket.io-client": "^4.8.3",
-    "zustand": "^5.0.12"
+    "react-native-screens": "~4.23.0"
   },
   "devDependencies": {
     "@types/react": "~19.2.2",
