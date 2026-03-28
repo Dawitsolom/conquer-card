@@ -14,7 +14,7 @@ import type {
   ClientGameState,
   RoundOverPayload,
   TurnChangedPayload,
-} from "../../contracts/dist";
+} from "../contracts";
 
 interface GameStore {
   // ── Server state ─────────────────────────────────────────────────────────────

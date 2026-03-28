@@ -37,6 +37,7 @@ model User {
 model Table {
   id            String      @id @default(uuid())
   isPrivate     Boolean     @default(false)
+  isSolo        Boolean     @default(false)      // 1 human vs 3 bots, betAmount=0
   roomCode      String?     @unique
   betAmount     Int
   jokerCount    Int         @default(4)         // 0, 2, or 4

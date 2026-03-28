@@ -1,7 +1,10 @@
 import { Router, Request, Response } from "express";
-import admin from "../lib/firebase";
+import { randomUUID } from "crypto";
+import jwt from "jsonwebtoken";
 import { prisma } from "../lib/prisma";
 import { authMiddleware, AuthRequest } from "../middleware/auth";
+
+const JWT_SECRET = process.env.JWT_SECRET ?? "changeme";
 
 // =============================================================================
 // routes/auth.ts  —  POST /auth/guest, POST /auth/verify
@@ -12,44 +15,53 @@ import { authMiddleware, AuthRequest } from "../middleware/auth";
 const router = Router();
 
 // ── POST /auth/guest ──────────────────────────────────────────────────────────
-// Creates a guest account (no prior Firebase login required).
+// Creates a guest session without Firebase.
 // Flow:
-//   1. Create anonymous Firebase Auth user via Admin SDK
-//   2. Upsert a Prisma User marked isGuest=true
-//   3. Return a Firebase custom token — client calls signInWithCustomToken()
-//      to get a real ID token for all subsequent requests.
+//   1. Generate a random guestId (no Firebase call needed)
+//   2. Upsert a Prisma User marked isGuest=true with 200-coin welcome bonus
+//   3. Sign an app JWT and return { token, user }
 //
-// Java analogy: like issuing a JWT for an unauthenticated "trial" session.
+// Java analogy: like issuing a short-lived JWT for an unauthenticated trial session.
 router.post("/guest", async (_req: Request, res: Response): Promise<void> => {
   try {
-    const suffix   = Math.random().toString(36).substring(2, 7).toUpperCase();
-    const guestName = `Guest_${suffix}`;
+    const guestId   = `guest_${randomUUID()}`;
+    const digits    = Math.floor(1000 + Math.random() * 9000);
+    const guestName = `Guest_${digits}`;
 
-    // Create an anonymous Firebase user
-    const fbUser = await admin.auth().createUser({ displayName: guestName });
-
-    // Create user + welcome bonus atomically — only on first creation
-    const existing = await prisma.user.findUnique({ where: { firebaseUid: fbUser.uid } });
-    const user = existing ?? await prisma.$transaction(async (tx) => {
-      const created = await tx.user.create({
-        data: {
-          firebaseUid:  fbUser.uid,
-          displayName:  guestName,
-          email:        null,
-          isGuest:      true,
-          coinBalance:  200,
+    // upsert: create on first call, no-op on any subsequent call with same guestId
+    const user = await prisma.$transaction(async (tx) => {
+      const created = await tx.user.upsert({
+        where:  { firebaseUid: guestId },
+        update: {},   // guest IDs are UUIDs — collision is impossible; update is a no-op
+        create: {
+          firebaseUid: guestId,
+          displayName: guestName,
+          email:       null,
+          isGuest:     true,
+          coinBalance: 200,
         },
       });
-      await tx.coinTransaction.create({
-        data: { userId: created.id, amount: 200, type: "WELCOME_BONUS" },
-      });
+      // Only create the welcome bonus transaction on first creation
+      const existing = await tx.coinTransaction.findFirst({ where: { userId: created.id, type: "WELCOME_BONUS" } });
+      if (!existing) {
+        await tx.coinTransaction.create({
+          data: { userId: created.id, amount: 200, type: "WELCOME_BONUS" },
+        });
+      }
       return created;
     });
 
-    // Custom token lets the client call Firebase signInWithCustomToken()
-    const customToken = await admin.auth().createCustomToken(fbUser.uid);
+    // Sign our own JWT — authMiddleware knows how to verify these for guests
+    const token = jwt.sign(
+      { sub: user.id, firebaseUid: user.firebaseUid, displayName: user.displayName, isGuest: true },
+      JWT_SECRET,
+      { expiresIn: "30d" },
+    );
 
-    res.status(201).json({ customToken, userId: user.id, displayName: user.displayName });
+    res.status(201).json({
+      token,
+      user: { id: user.id, displayName: user.displayName, isGuest: true, coinBalance: user.coinBalance },
+    });
   } catch (err) {
     console.error("[POST /auth/guest]", err);
     res.status(500).json({ error: "Failed to create guest account" });

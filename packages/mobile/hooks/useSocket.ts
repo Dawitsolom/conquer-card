@@ -17,11 +17,12 @@ import { useEffect, useRef } from "react";
 import { io, Socket } from "socket.io-client";
 import { useGameStore } from "../store/gameStore";
 import { useAuthStore } from "../store/authStore";
-import { CLIENT_EVENTS } from "../../contracts/dist";
+import { CLIENT_EVENTS } from "../contracts";
+import { env } from "../lib/env";
 import type { GameAction } from "../../engine/dist";
-import type { ClientGameState } from "../../contracts/dist";
+import type { ClientGameState } from "../contracts";
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:3000";
+const API_URL = env.apiUrl;
 
 export function useSocket() {
   const socketRef  = useRef<Socket | null>(null);
@@ -48,7 +49,7 @@ export function useSocket() {
         void fetch(`${API_URL}/tables/${currentTableId}/state`, {
           headers: { Authorization: `Bearer ${jwt}` },
         })
-          .then(r => r.ok ? r.json() : null)
+          .then(r => r.ok ? (r.json() as Promise<ClientGameState>) : null)
           .then((state: ClientGameState | null) => {
             if (state) setGameState(state);
           })

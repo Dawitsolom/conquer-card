@@ -1,29 +1,30 @@
 import {
-  View, Text, TouchableOpacity, FlatList,
-  StyleSheet, ActivityIndicator,
+  View, Text, TouchableOpacity,
+  StyleSheet, ActivityIndicator, SafeAreaView, ScrollView,
 } from "react-native";
 import { useEffect, useState, useCallback } from "react";
-import { useRouter } from "expo-router";
+import { Redirect, useRouter } from "expo-router";
 import { signOut } from "firebase/auth";
-import { auth } from "../lib/firebase";
+import { auth, isFirebaseConfigured } from "../lib/firebase";
 import { useAuthStore } from "../store/authStore";
 import { trackEvent } from "../hooks/useAnalytics";
 import {
-  getPublicTables, getProfile, createTable, joinTable,
+  getPublicTables, getProfile, createTable, createSoloTable, joinTable,
   type TablesByTier, type UserProfile,
 } from "../services/apiService";
 
-const TIERS = ["low", "medium", "high"] as const;
-const TIER_LABELS: Record<typeof TIERS[number], string> = {
-  low:    "Low Stakes (≤50)",
-  medium: "Medium Stakes (51–200)",
-  high:   "High Stakes (200+)",
+const TIERS = ["beginner", "standard", "highStakes", "elite"] as const;
+
+const TIER_META: Record<typeof TIERS[number], { emoji: string; label: string; coins: number }> = {
+  beginner:   { emoji: "🌱", label: "Beginner",     coins: 10  },
+  standard:   { emoji: "⚔️",  label: "Standard",     coins: 50  },
+  highStakes: { emoji: "🔥", label: "High Stakes",  coins: 100 },
+  elite:      { emoji: "👑", label: "Elite",         coins: 500 },
 };
 
 export default function HomeScreen() {
   const router = useRouter();
   const { user, logout } = useAuthStore();
-  const displayName = user?.displayName ?? "Player";
 
   const [tables,  setTables]  = useState<TablesByTier | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -33,6 +34,7 @@ export default function HomeScreen() {
 
   const loadData = useCallback(async () => {
     if (!user) return;
+
     setLoading(true);
     setError(null);
     try {
@@ -54,9 +56,12 @@ export default function HomeScreen() {
     } finally {
       setLoading(false);
     }
-  }, [user]);
+  }, [user, logout, router]);
 
-  useEffect(() => { void loadData(); }, [loadData]);
+  useEffect(() => {
+    if (!user) return;
+    void loadData();
+  }, [loadData, user]);
 
   const handleJoin = async (tableId: string) => {
     setJoining(tableId);
@@ -81,96 +86,192 @@ export default function HomeScreen() {
     }
   };
 
+  const handleSolo = async () => {
+    try {
+      const result = await createSoloTable();
+      trackEvent("solo_game_started", { tableId: result.tableId });
+      router.push(`/game/${result.tableId}`);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to start solo game");
+    }
+  };
+
   const handleSignOut = async () => {
     logout();
-    await signOut(auth);
+    if (isFirebaseConfigured && auth) await signOut(auth);
   };
+
+  if (!user) {
+    return <Redirect href="/login" />;
+  }
 
   if (loading) {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator color="#e94560" size="large" />
-      </View>
+      <SafeAreaView style={styles.loadingContainer}>
+        <ActivityIndicator color="#C4783A" size="large" />
+      </SafeAreaView>
     );
   }
 
   return (
-    <View style={styles.container}>
-      {/* Header */}
+    <SafeAreaView style={styles.root}>
+      {/* ── Header ────────────────────────────────────────────────────── */}
       <View style={styles.header}>
-        <View>
-          <Text style={styles.welcome}>Welcome, {displayName}</Text>
-          <Text style={styles.coins}>
-            {profile ? `${profile.coinBalance} coins` : "—"}
+        <Text style={styles.title}>CONQUER CARD</Text>
+        <TouchableOpacity style={styles.coinBadge} onPress={handleSignOut}>
+          <Text style={styles.coinBadgeText}>
+            🪙 {profile?.coinBalance ?? "—"}
           </Text>
-        </View>
-        <TouchableOpacity onPress={handleSignOut}>
-          <Text style={styles.signOut}>Sign out</Text>
         </TouchableOpacity>
       </View>
 
-      {error && <Text style={styles.error}>{error}</Text>}
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {error && <Text style={styles.error}>{error}</Text>}
 
-      {/* Create private table */}
-      <TouchableOpacity style={styles.createButton} onPress={handleCreate}>
-        <Text style={styles.createButtonText}>+ Create Private Table</Text>
-      </TouchableOpacity>
+        {/* ── Solo Play ───────────────────────────────────────────────── */}
+        <Text style={styles.sectionLabel}>SOLO PLAY</Text>
+        <TouchableOpacity style={styles.soloCard} onPress={handleSolo}>
+          <Text style={styles.soloEmoji}>🤖</Text>
+          <View style={styles.soloInfo}>
+            <Text style={styles.soloTitle}>Play vs Bots</Text>
+            <Text style={styles.soloSub}>Practice against AI — no coins wagered</Text>
+          </View>
+          <View style={styles.soloBtn}>
+            <Text style={styles.soloBtnText}>PLAY →</Text>
+          </View>
+        </TouchableOpacity>
 
-      {/* Public table tiers */}
-      <FlatList
-        data={TIERS}
-        keyExtractor={tier => tier}
-        renderItem={({ item: tier }) => {
+        {/* ── Tier cards ──────────────────────────────────────────────── */}
+        <Text style={[styles.sectionLabel, { marginTop: 20 }]}>JOIN A TABLE</Text>
+
+        {TIERS.map(tier => {
+          const meta = TIER_META[tier];
           const list = tables?.[tier] ?? [];
           return (
-            <View style={styles.tier}>
-              <Text style={styles.tierLabel}>{TIER_LABELS[tier]}</Text>
-              {list.length === 0 ? (
-                <Text style={styles.empty}>No tables — be the first!</Text>
+            <View key={tier} style={styles.tierCard}>
+              <Text style={styles.tierEmoji}>{meta.emoji}</Text>
+              <View style={styles.tierInfo}>
+                <Text style={styles.tierName}>{meta.label}</Text>
+                <Text style={styles.tierSub}>2–4 players</Text>
+              </View>
+              <Text style={styles.tierCoins}>{meta.coins} coins</Text>
+              {list.length > 0 ? (
+                <TouchableOpacity
+                  style={styles.joinBtn}
+                  onPress={() => handleJoin(list[0]!.id)}
+                  disabled={joining === list[0]!.id}
+                >
+                  {joining === list[0]!.id
+                    ? <ActivityIndicator color="#C4783A" size="small" />
+                    : <Text style={styles.joinBtnText}>JOIN →</Text>
+                  }
+                </TouchableOpacity>
               ) : (
-                list.map(table => (
-                  <View key={table.id} style={styles.tableRow}>
-                    <Text style={styles.tableBet}>{table.betAmount} coins</Text>
-                    <Text style={styles.tablePlayers}>
-                      {table.playerCount}/{table.maxPlayers} players
-                    </Text>
-                    <TouchableOpacity
-                      style={styles.joinButton}
-                      onPress={() => handleJoin(table.id)}
-                      disabled={joining === table.id}
-                    >
-                      {joining === table.id
-                        ? <ActivityIndicator color="#fff" size="small" />
-                        : <Text style={styles.joinText}>JOIN</Text>
-                      }
-                    </TouchableOpacity>
-                  </View>
-                ))
+                <Text style={styles.noTables}>Empty</Text>
               )}
             </View>
           );
-        }}
-      />
-    </View>
+        })}
+
+        {/* ── Create private table ────────────────────────────────────── */}
+        <TouchableOpacity style={styles.createBtn} onPress={handleCreate}>
+          <Text style={styles.createBtnText}>+ Create Private Table</Text>
+        </TouchableOpacity>
+      </ScrollView>
+
+      {/* ── Bottom tab bar ──────────────────────────────────────────────── */}
+      <View style={styles.tabBar}>
+        <View style={styles.tabItem}>
+          <Text style={styles.tabIcon}>🏠</Text>
+          <Text style={[styles.tabLabel, styles.tabActive]}>Home</Text>
+        </View>
+        <View style={styles.tabItem}>
+          <Text style={styles.tabIcon}>👤</Text>
+          <Text style={styles.tabLabel}>Profile</Text>
+        </View>
+        <View style={styles.tabItem}>
+          <Text style={styles.tabIcon}>🛒</Text>
+          <Text style={styles.tabLabel}>Shop</Text>
+        </View>
+      </View>
+    </SafeAreaView>
   );
 }
 
+const C = {
+  cream:      "#FDF3E3",
+  border:     "#E8D5B7",
+  brown:      "#3B1F0E",
+  terra:      "#C4783A",
+  amberPill:  "#F5A623",
+  white:      "#FFFFFF",
+  subtext:    "#9B7E5E",
+  tabBar:     "#2C1A0E",
+};
+
 const styles = StyleSheet.create({
-  container:        { flex: 1, backgroundColor: "#1a1a2e", padding: 16 },
-  center:           { flex: 1, backgroundColor: "#1a1a2e", alignItems: "center", justifyContent: "center" },
-  header:           { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 },
-  welcome:          { color: "#fff", fontSize: 18, fontWeight: "600" },
-  coins:            { color: "#e94560", fontSize: 14, marginTop: 2 },
-  signOut:          { color: "#666", fontSize: 14 },
-  error:            { color: "#ff6b6b", fontSize: 13, marginBottom: 8 },
-  createButton:     { backgroundColor: "#0f3460", padding: 14, borderRadius: 10, alignItems: "center", marginBottom: 20 },
-  createButtonText: { color: "#fff", fontSize: 16, fontWeight: "600" },
-  tier:             { marginBottom: 20 },
-  tierLabel:        { color: "#a0a0c0", fontSize: 13, fontWeight: "600", marginBottom: 8, textTransform: "uppercase" },
-  empty:            { color: "#555", fontSize: 14, fontStyle: "italic" },
-  tableRow:         { flexDirection: "row", alignItems: "center", backgroundColor: "#16213e", padding: 12, borderRadius: 10, marginBottom: 6 },
-  tableBet:         { color: "#fff", fontSize: 15, fontWeight: "600", flex: 1 },
-  tablePlayers:     { color: "#a0a0c0", fontSize: 13, marginRight: 12 },
-  joinButton:       { backgroundColor: "#e94560", paddingVertical: 8, paddingHorizontal: 16, borderRadius: 8, minWidth: 60, alignItems: "center" },
-  joinText:         { color: "#fff", fontSize: 14, fontWeight: "600" },
+  root:            { flex: 1, backgroundColor: C.cream },
+  loadingContainer:{ flex: 1, backgroundColor: C.cream, alignItems: "center", justifyContent: "center" },
+
+  // Header
+  header:          { flexDirection: "row", justifyContent: "space-between", alignItems: "center",
+                     paddingHorizontal: 20, paddingTop: 16, paddingBottom: 12 },
+  title:           { fontSize: 22, fontWeight: "900", letterSpacing: 2, color: C.brown },
+  coinBadge:       { backgroundColor: C.amberPill, paddingHorizontal: 14, paddingVertical: 6,
+                     borderRadius: 20 },
+  coinBadgeText:   { color: C.white, fontWeight: "700", fontSize: 14 },
+
+  // Scroll
+  scroll:          { flex: 1 },
+  scrollContent:   { paddingHorizontal: 20, paddingBottom: 24 },
+
+  // Section label
+  sectionLabel:    { fontSize: 11, fontWeight: "700", letterSpacing: 1.5, color: C.subtext,
+                     textTransform: "uppercase", marginBottom: 12, marginTop: 4 },
+
+  // Error
+  error:           { color: "#C0392B", fontSize: 13, marginBottom: 10 },
+
+  // Tier card
+  tierCard:        { flexDirection: "row", alignItems: "center", backgroundColor: C.white,
+                     borderRadius: 14, borderWidth: 1, borderColor: C.border,
+                     padding: 16, marginBottom: 10 },
+  tierEmoji:       { fontSize: 26, marginRight: 14 },
+  tierInfo:        { flex: 1 },
+  tierName:        { fontSize: 16, fontWeight: "700", color: C.brown },
+  tierSub:         { fontSize: 12, color: C.subtext, marginTop: 2 },
+  tierCoins:       { fontSize: 14, fontWeight: "600", color: C.brown, marginRight: 14 },
+  joinBtn:         { paddingVertical: 8, paddingHorizontal: 14, borderRadius: 8,
+                     borderWidth: 1.5, borderColor: C.terra },
+  joinBtnText:     { color: C.terra, fontWeight: "700", fontSize: 13 },
+  noTables:        { color: C.subtext, fontSize: 12, fontStyle: "italic" },
+
+  // Solo Play card
+  soloCard:        { flexDirection: "row", alignItems: "center", backgroundColor: "#FFF8EE",
+                     borderRadius: 14, borderWidth: 1.5, borderColor: C.terra,
+                     padding: 16, marginBottom: 10 },
+  soloEmoji:       { fontSize: 26, marginRight: 14 },
+  soloInfo:        { flex: 1 },
+  soloTitle:       { fontSize: 16, fontWeight: "700", color: C.brown },
+  soloSub:         { fontSize: 12, color: C.subtext, marginTop: 2 },
+  soloBtn:         { paddingVertical: 8, paddingHorizontal: 14, borderRadius: 8,
+                     borderWidth: 1.5, borderColor: C.terra },
+  soloBtnText:     { color: C.terra, fontWeight: "700", fontSize: 13 },
+
+  // Create button
+  createBtn:       { backgroundColor: C.terra, borderRadius: 14, padding: 16,
+                     alignItems: "center", marginTop: 8 },
+  createBtnText:   { color: C.white, fontSize: 16, fontWeight: "700" },
+
+  // Bottom tab bar
+  tabBar:          { flexDirection: "row", backgroundColor: C.tabBar,
+                     paddingVertical: 10, paddingBottom: 20 },
+  tabItem:         { flex: 1, alignItems: "center" },
+  tabIcon:         { fontSize: 20 },
+  tabLabel:        { color: "#7A5C44", fontSize: 11, marginTop: 3 },
+  tabActive:       { color: C.amberPill, fontWeight: "700" },
 });

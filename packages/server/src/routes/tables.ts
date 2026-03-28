@@ -57,25 +57,32 @@ router.get("/public", async (req: AuthRequest, res: Response): Promise<void> => 
 });
 
 // ── POST /tables/create ───────────────────────────────────────────────────────
-// Creates a private table. Host gets a 6-char room code to share with friends.
+// Creates a private table or a solo (vs-bots) table.
+// isSolo=true: betAmount must be 0, no coin check, bots join automatically via socket.
 router.post("/create", async (req: AuthRequest, res: Response): Promise<void> => {
-  const { betAmount, jokerCount = 4, sequencesOnly = false } = req.body as {
+  const { betAmount, jokerCount = 4, sequencesOnly = false, isSolo = false } = req.body as {
     betAmount: number;
     jokerCount?: 0 | 2 | 4;
     sequencesOnly?: boolean;
+    isSolo?: boolean;
   };
 
-  if (!betAmount || betAmount < 1) {
-    res.status(400).json({ error: "betAmount is required and must be at least 1" });
-    return;
-  }
-  if (![0, 2, 4].includes(jokerCount)) {
-    res.status(400).json({ error: "jokerCount must be 0, 2, or 4" });
-    return;
-  }
-
-  try {
-    // Check host has enough coins
+  if (isSolo) {
+    // Solo mode: no coin wager, start immediately
+    if (betAmount !== 0) {
+      res.status(400).json({ error: "Solo mode requires betAmount: 0" });
+      return;
+    }
+  } else {
+    if (!betAmount || betAmount < 1) {
+      res.status(400).json({ error: "betAmount is required and must be at least 1" });
+      return;
+    }
+    if (![0, 2, 4].includes(jokerCount)) {
+      res.status(400).json({ error: "jokerCount must be 0, 2, or 4" });
+      return;
+    }
+    // Check host has enough coins for real-money tables
     const host = await prisma.user.findUnique({
       where: { id: req.user!.id },
       select: { coinBalance: true },
@@ -84,7 +91,9 @@ router.post("/create", async (req: AuthRequest, res: Response): Promise<void> =>
       res.status(400).json({ error: "Insufficient coin balance" });
       return;
     }
+  }
 
+  try {
     // Generate a unique 6-char room code (retry on collision)
     let roomCode: string;
     let attempts = 0;
@@ -98,6 +107,7 @@ router.post("/create", async (req: AuthRequest, res: Response): Promise<void> =>
     const table = await prisma.table.create({
       data: {
         isPrivate:     true,
+        isSolo,
         roomCode,
         betAmount,
         jokerCount,
@@ -110,7 +120,7 @@ router.post("/create", async (req: AuthRequest, res: Response): Promise<void> =>
     // Store room code → tableId mapping in Redis for fast socket lookups
     await redis.set(Keys.roomCode(roomCode), table.id);
 
-    res.status(201).json({ tableId: table.id, roomCode });
+    res.status(201).json({ tableId: table.id, roomCode, isSolo });
   } catch (err) {
     console.error("[POST /tables/create]", err);
     res.status(500).json({ error: "Failed to create table" });

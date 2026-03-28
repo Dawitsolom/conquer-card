@@ -9,8 +9,9 @@
 // =============================================================================
 
 import { useAuthStore } from "../store/authStore";
+import { env } from "../lib/env";
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:3000";
+const API_URL = env.apiUrl;
 
 // ── Internal helper ───────────────────────────────────────────────────────────
 
@@ -47,9 +48,10 @@ export interface PublicTable {
 }
 
 export interface TablesByTier {
-  low:    PublicTable[];   // betAmount <= 50
-  medium: PublicTable[];   // betAmount 51–200
-  high:   PublicTable[];   // betAmount > 200
+  beginner:   PublicTable[];   // betAmount <= 25   (10-coin tables)
+  standard:   PublicTable[];   // betAmount 26–75   (50-coin tables)
+  highStakes: PublicTable[];   // betAmount 76–250  (100-coin tables)
+  elite:      PublicTable[];   // betAmount > 250   (500-coin tables)
 }
 
 export interface UserProfile {
@@ -74,9 +76,10 @@ export interface JoinTableResult {
 export async function getPublicTables(): Promise<TablesByTier> {
   const tables = await apiFetch<PublicTable[]>("/tables/public");
   return {
-    low:    tables.filter(t => t.betAmount <= 50),
-    medium: tables.filter(t => t.betAmount > 50 && t.betAmount <= 200),
-    high:   tables.filter(t => t.betAmount > 200),
+    beginner:   tables.filter(t => t.betAmount <= 25),
+    standard:   tables.filter(t => t.betAmount > 25  && t.betAmount <= 75),
+    highStakes: tables.filter(t => t.betAmount > 75  && t.betAmount <= 250),
+    elite:      tables.filter(t => t.betAmount > 250),
   };
 }
 
@@ -88,6 +91,13 @@ export async function createTable(betAmount: number, jokerCount: 0 | 2 | 4 = 4):
   return apiFetch<CreateTableResult>("/tables/create", {
     method: "POST",
     body: JSON.stringify({ betAmount, jokerCount, isPrivate: false }),
+  });
+}
+
+export async function createSoloTable(): Promise<CreateTableResult> {
+  return apiFetch<CreateTableResult>("/tables/create", {
+    method: "POST",
+    body: JSON.stringify({ betAmount: 0, jokerCount: 4, isSolo: true }),
   });
 }
 

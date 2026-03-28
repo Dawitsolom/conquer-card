@@ -1,6 +1,9 @@
 import { Server, Socket } from "socket.io";
+import jwt from "jsonwebtoken";
 import { prisma } from "../lib/prisma";
 import { verifyIdToken } from "../lib/firebase";
+
+const JWT_SECRET = process.env.JWT_SECRET ?? "changeme";
 import redis, { Keys, getGameState, setGameState, casGameState, type CasOutcome } from "../lib/redis";
 import { settleRound } from "../lib/coinLedger";
 import { isBotTurn, takeBotTurn } from "../botAI";
@@ -89,6 +92,25 @@ export function registerAuthMiddleware(io: Server): void {
   io.use(async (socket, next) => {
     const token = socket.handshake.auth?.token as string | undefined;
     if (!token) return next(new Error("Authentication required"));
+
+    // ── Guest path: app-signed JWT ────────────────────────────────────────────
+    try {
+      const payload = jwt.verify(token, JWT_SECRET) as {
+        sub: string; firebaseUid: string; displayName: string; isGuest?: boolean;
+      };
+      if (payload.isGuest) {
+        const user = await prisma.user.findUnique({ where: { id: payload.sub } });
+        if (!user) return next(new Error("Guest user not found"));
+        const s = socket as AuthSocket;
+        s.userId      = user.id;
+        s.displayName = user.displayName;
+        return next();
+      }
+    } catch {
+      // Not a guest JWT — fall through to Firebase verification
+    }
+
+    // ── Registered path: Firebase ID token ───────────────────────────────────
     try {
       const decoded = await verifyIdToken(token);
       const user = await prisma.user.findUnique({ where: { firebaseUid: decoded.uid } });
@@ -190,7 +212,7 @@ function startTurnTimer(io: Server, tableId: string, state: GameState): void {
     io.to(tableId).emit(SERVER_EVENTS.TURN_TIMEOUT, { playerId: timedOutPlayer.id });
     await broadcastState(io, persisted);
     startTurnTimer(io, tableId, persisted);
-  }, delay);
+  }, isBotTurn(state) ? (2000 + Math.random() * 1000) : delay);
 
   turnTimers.set(tableId, timer);
 }
@@ -210,6 +232,84 @@ function isRateLimited(socketId: string): boolean {
   return false;
 }
 
+
+// ── Solo game bootstrap ───────────────────────────────────────────────────────
+
+const BOT_NAMES = [
+  { firebaseUid: "bot_alex",   displayName: "Bot Alex"   },
+  { firebaseUid: "bot_sam",    displayName: "Bot Sam"    },
+  { firebaseUid: "bot_jordan", displayName: "Bot Jordan" },
+];
+
+/**
+ * Called when a human joins a solo table.
+ * Upserts 3 bot User records, deals cards immediately (no READY needed),
+ * marks bot players isBot=true in the game state, then starts the turn timer.
+ */
+async function startSoloGame(
+  io: Server,
+  humanSocket: AuthSocket,
+  table: { id: string; jokerCount: number; sequencesOnly: boolean; betAmount: number },
+  humanId: string,
+): Promise<void> {
+  const tableId = table.id;
+
+  // Already started (reconnect path)
+  const existing = await getGameState(tableId);
+  if (existing) return;
+
+  // Upsert bot users
+  const bots = await Promise.all(
+    BOT_NAMES.map(b =>
+      prisma.user.upsert({
+        where:  { firebaseUid: b.firebaseUid },
+        update: {},
+        create: { firebaseUid: b.firebaseUid, displayName: b.displayName, isBot: true, coinBalance: 0 },
+      }),
+    ),
+  );
+
+  const allIds   = [humanId, ...bots.map(b => b.id)];
+  const allNames = [humanSocket.displayName, ...bots.map(b => b.displayName)];
+
+  // Create round record
+  const round = await prisma.round.create({
+    data: {
+      tableId,
+      roundNumber: 1,
+      betAmount: 0,
+      playerCount: 4,
+    },
+  });
+  for (const uid of allIds) {
+    await prisma.gamePlayer.create({ data: { userId: uid, roundId: round.id } });
+  }
+  await prisma.table.update({ where: { id: tableId }, data: { status: "ACTIVE" } });
+
+  const config: TableConfig = {
+    jokerCount:         table.jokerCount as 0 | 2 | 4,
+    sequencesOnlyMode:  table.sequencesOnly,
+    betAmount:          0,
+    turnTimeoutSeconds: 30,
+  };
+
+  const coinBalances: Record<string, number> = Object.fromEntries(allIds.map(id => [id, 0]));
+  let state = dealCards(tableId, allIds, allNames, 0, config, coinBalances, 1);
+
+  // Mark bot players isBot=true in the game state (engine sets isBot:false by default)
+  state = {
+    ...state,
+    players: state.players.map(p => ({
+      ...p,
+      isBot: bots.some(b => b.id === p.id),
+    })),
+  };
+
+  const persisted = await setGameState(tableId, state);
+  humanSocket.emit(SERVER_EVENTS.ROUND_START, { roundNumber: 1, dealerIndex: 0 });
+  await broadcastState(io, persisted);
+  startTurnTimer(io, tableId, persisted);
+}
 
 // ── Main handler registration ─────────────────────────────────────────────────
 
@@ -263,6 +363,11 @@ export function registerGameEvents(io: Server, socket: Socket): void {
         playerId: s.userId,
         displayName: s.displayName,
       });
+
+      // ── Solo mode: add bots and start immediately ─────────────────────────
+      if (table.isSolo) {
+        await startSoloGame(io, socket as unknown as AuthSocket, table, s.userId);
+      }
     } catch (err) {
       console.error("[table:join]", err);
       socket.emit(SERVER_EVENTS.ERROR, { message: "Failed to join table" });

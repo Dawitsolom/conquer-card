@@ -9,7 +9,7 @@
 
 import { calculateMeldValue, meetsOpeningThreshold } from "../../engine/dist";
 import type { Card, MeldType } from "../../engine/dist";
-import type { OwnClientPlayer } from "../../contracts/dist";
+import type { OwnClientPlayer } from "../contracts";
 
 export type HintContext = {
   myPlayer:      OwnClientPlayer | null;

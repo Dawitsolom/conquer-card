@@ -17,9 +17,18 @@ import {
   signInAnonymously,
   signOut as firebaseSignOut,
 } from "firebase/auth";
-import { auth } from "../lib/firebase";
+import { auth, isFirebaseConfigured } from "../lib/firebase";
+import { env } from "../lib/env";
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:3000";
+/** Throws a clear error when a Firebase-only flow is attempted without credentials. */
+function requireFirebase(): NonNullable<typeof auth> {
+  if (!isFirebaseConfigured || !auth) {
+    throw new Error("Email/password login requires Firebase credentials. Use guest mode or add EXPO_PUBLIC_FIREBASE_* variables to .env.");
+  }
+  return auth;
+}
+
+const API_URL = env.apiUrl;
 
 // ── Internal helper ───────────────────────────────────────────────────────────
 
@@ -44,7 +53,7 @@ export async function signInWithEmail(
   email: string,
   password: string,
 ): Promise<{ uid: string; displayName: string; jwt: string }> {
-  const cred = await signInWithEmailAndPassword(auth, email, password);
+  const cred = await signInWithEmailAndPassword(requireFirebase(), email, password);
   const idToken = await cred.user.getIdToken();
   const jwt = await exchangeForJwt(idToken);
   return {
@@ -60,31 +69,42 @@ export async function registerWithEmail(
   password: string,
   displayName: string,
 ): Promise<{ uid: string; displayName: string; jwt: string }> {
-  const cred = await createUserWithEmailAndPassword(auth, email, password);
+  const cred = await createUserWithEmailAndPassword(requireFirebase(), email, password);
   await updateProfile(cred.user, { displayName });
   const idToken = await cred.user.getIdToken();
   const jwt = await exchangeForJwt(idToken);
   return { uid: cred.user.uid, displayName, jwt };
 }
 
-/** Sign in anonymously via Firebase, then exchange for an app JWT. */
+/** Sign in as guest.
+ *  - With Firebase: anonymous auth → server /auth/verify
+ *  - Without Firebase: direct POST /auth/guest (server creates the account)
+ */
 export async function signInAsGuest(): Promise<{
   uid: string;
   displayName: string;
   jwt: string;
 }> {
-  // Option A: Firebase anonymous auth → server /auth/verify
+  if (!isFirebaseConfigured || !auth) {
+    // Direct server-side guest creation — no client Firebase needed.
+    const res = await fetch(`${API_URL}/auth/guest`, { method: "POST" });
+    if (!res.ok) throw new Error(`Guest login failed (${res.status})`);
+    const data = await res.json() as {
+      token: string;
+      user: { id: string; displayName: string; isGuest: boolean; coinBalance: number };
+    };
+    return { uid: data.user.id, displayName: data.user.displayName, jwt: data.token };
+  }
+
   const cred = await signInAnonymously(auth);
   const idToken = await cred.user.getIdToken();
   const jwt = await exchangeForJwt(idToken);
-  return {
-    uid: cred.user.uid,
-    displayName: "Guest",
-    jwt,
-  };
+  return { uid: cred.user.uid, displayName: "Guest", jwt };
 }
 
 /** Sign out from Firebase and clear local state. */
 export async function signOut(): Promise<void> {
-  await firebaseSignOut(auth);
+  if (isFirebaseConfigured && auth) {
+    await firebaseSignOut(auth);
+  }
 }

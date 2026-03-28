@@ -16,7 +16,7 @@
 
 import { useEffect, useRef } from "react";
 import { useGameStore } from "../store/gameStore";
-import { SERVER_EVENTS } from "../../contracts/dist";
+import { SERVER_EVENTS } from "../contracts";
 import type {
   ClientGameState,
   RoundStartPayload,
@@ -29,7 +29,7 @@ import type {
   ActionRejectedPayload,
   ErrorPayload,
   EmojiReactionPayload,
-} from "../../contracts/dist";
+} from "../contracts";
 import type { Socket } from "socket.io-client";
 
 export function useGameEvents(socket: Socket | null) {

@@ -24,9 +24,9 @@ const monorepoRoot = path.resolve(projectRoot, "../..");
 const config = getDefaultConfig(projectRoot);
 
 // ── 1. Watch only the packages we import from ────────────────────────────────
+// contracts types now live inside packages/mobile/contracts/ — no external watch needed.
 config.watchFolders = [
   path.resolve(monorepoRoot, "packages/engine"),
-  path.resolve(monorepoRoot, "packages/contracts"),
 ];
 
 // ── 2. Resolve hoisted deps from root node_modules ───────────────────────────
@@ -43,7 +43,6 @@ const escapePath = (p) => p.replace(/[.+?^${}()|[\]\\]/g, "\\$&");
 
 config.resolver.blockList = [
   new RegExp(`^${escapePath(path.resolve(monorepoRoot, "packages/engine/node_modules"))}/`),
-  new RegExp(`^${escapePath(path.resolve(monorepoRoot, "packages/contracts/node_modules"))}/`),
 ];
 
 module.exports = config;

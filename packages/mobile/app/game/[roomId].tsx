@@ -20,8 +20,8 @@ import { useGameStore } from "../../store/gameStore";
 import { useAuthStore } from "../../store/authStore";
 import { useSocket } from "../../hooks/useSocket";
 import { useGameEvents } from "../../hooks/useGameEvents";
-import { isOwnPlayer } from "../../../contracts/dist";
-import type { ClientPlayer, OwnClientPlayer } from "../../../contracts/dist";
+import { isOwnPlayer } from "../../contracts";
+import type { ClientPlayer, OwnClientPlayer } from "../../contracts";
 import type { Card, MeldType } from "../../../engine/dist";
 import {
   getHintMessage,
@@ -93,6 +93,11 @@ export default function GameScreen() {
   const opponents: ClientPlayer[] = useMemo(
     () => gameState ? gameState.players.filter(p => p.id !== playerId) : [],
     [gameState, playerId],
+  );
+
+  const isSolo = useMemo(
+    () => !!gameState?.players.some(p => p.isBot),
+    [gameState],
   );
 
   // ── Selection-derived values (for hint bar + LAY MELD button label) ───────
@@ -200,12 +205,16 @@ export default function GameScreen() {
           </View>
         )}
         <Text style={styles.waitingText}>
-          {countdownSeconds !== null ? `Game starts in ${countdownSeconds}s…` : "Waiting for players…"}
+          {countdownSeconds !== null
+            ? `Game starts in ${countdownSeconds}s…`
+            : isSolo ? "Setting up bots…" : "Waiting for players…"}
         </Text>
         {error && <Text style={styles.error}>{error}</Text>}
-        <TouchableOpacity style={styles.button} onPress={() => roomId && signalReady(roomId)}>
-          <Text style={styles.buttonText}>Ready</Text>
-        </TouchableOpacity>
+        {!isSolo && (
+          <TouchableOpacity style={styles.button} onPress={() => roomId && signalReady(roomId)}>
+            <Text style={styles.buttonText}>Ready</Text>
+          </TouchableOpacity>
+        )}
         <TouchableOpacity style={styles.leaveButton} onPress={() => router.replace("/")}>
           <Text style={styles.leaveText}>Leave</Text>
         </TouchableOpacity>
@@ -263,20 +272,31 @@ export default function GameScreen() {
         </View>
       )}
 
+      {/* Solo mode badge */}
+      {isSolo && (
+        <View style={styles.soloBadge}>
+          <Text style={styles.soloBadgeText}>🤖 SOLO MODE · Practice Round</Text>
+        </View>
+      )}
+
       {/* Opponents */}
       <View style={styles.opponentsRow}>
         {opponents.map((opp, i) => {
           const pos      = OPPONENT_POSITIONS[i] ?? "TOP";
           const isActive = opp.id === activePlayerId;
           const count    = isOwnPlayer(opp) ? opp.hand.length : opp.handCount;
+          const avatar   = opp.isBot ? "🤖" : opp.displayName.charAt(0).toUpperCase();
           return (
             <View key={opp.id} style={[styles.opponentSlot, isActive && styles.activeSlot]}>
+              <Text style={styles.opponentAvatar}>{avatar}</Text>
               <Text style={styles.opponentName} numberOfLines={1}>{opp.displayName}</Text>
               <Text style={styles.opponentPos}>{pos}</Text>
               <Text style={styles.opponentCards}>{count} cards</Text>
-              <TouchableOpacity onPress={() => setShowEmoji(true)}>
-                <Text style={styles.emojiTrigger}>😊</Text>
-              </TouchableOpacity>
+              {!isSolo && (
+                <TouchableOpacity onPress={() => setShowEmoji(true)}>
+                  <Text style={styles.emojiTrigger}>😊</Text>
+                </TouchableOpacity>
+              )}
             </View>
           );
         })}
@@ -467,10 +487,13 @@ const styles = StyleSheet.create({
   container:       { flex: 1, backgroundColor: "#1a1a2e", padding: 10 },
   reconnectBanner: { flexDirection: "row", alignItems: "center", backgroundColor: "#444", padding: 6, borderRadius: 8, marginBottom: 6, gap: 6 },
   reconnectText:   { color: "#fff", fontSize: 12 },
+  soloBadge:       { backgroundColor: "#2a1f3d", borderRadius: 8, paddingVertical: 4, paddingHorizontal: 10, alignSelf: "center", marginBottom: 6 },
+  soloBadgeText:   { color: "#C4A0FF", fontSize: 11, fontWeight: "700", letterSpacing: 0.5 },
   waitingText:     { color: "#fff", fontSize: 20, textAlign: "center", marginTop: 80 },
   opponentsRow:    { flexDirection: "row", justifyContent: "space-around", marginBottom: 10 },
   opponentSlot:    { backgroundColor: "#16213e", padding: 8, borderRadius: 10, alignItems: "center", minWidth: 75 },
   activeSlot:      { borderColor: "#e94560", borderWidth: 2 },
+  opponentAvatar:  { fontSize: 18, marginBottom: 2 },
   opponentName:    { color: "#fff", fontSize: 11, fontWeight: "600", maxWidth: 70 },
   opponentPos:     { color: "#555", fontSize: 9 },
   opponentCards:   { color: "#a0a0c0", fontSize: 11 },
