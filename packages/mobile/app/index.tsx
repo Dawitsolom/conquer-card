@@ -2,12 +2,13 @@ import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import { useRouter } from "expo-router";
 import { signOut } from "firebase/auth";
 import { auth } from "../lib/firebase";
-import { useGameStore } from "../store/gameStore";
+import { useAuthStore } from "../store/authStore";
 import { trackEvent } from "../hooks/useAnalytics";
 
 export default function HomeScreen() {
   const router = useRouter();
-  const { playerName, reset } = useGameStore();
+  const { user, logout } = useAuthStore();
+  const displayName = user?.displayName ?? "Player";
 
   const handleCreateGame = () => {
     // TODO Step 5: POST /tables/create then navigate
@@ -16,7 +17,7 @@ export default function HomeScreen() {
   };
 
   const handleSignOut = async () => {
-    reset();
+    logout();
     await signOut(auth);
   };
 
@@ -24,7 +25,7 @@ export default function HomeScreen() {
     <View style={styles.container}>
       <Text style={styles.title}>🃏 Conquer Card</Text>
       <Text style={styles.subtitle}>Ethiopian Social Card Game</Text>
-      <Text style={styles.welcome}>Welcome, {playerName || "Player"}!</Text>
+      <Text style={styles.welcome}>Welcome, {displayName}!</Text>
 
       <TouchableOpacity style={styles.button} onPress={handleCreateGame}>
         <Text style={styles.buttonText}>🎮 Create Game</Text>

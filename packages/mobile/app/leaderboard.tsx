@@ -1,6 +1,6 @@
 import { View, Text, FlatList, StyleSheet, ActivityIndicator } from "react-native";
 import { useEffect, useState } from "react";
-import { useGameStore } from "../store/gameStore";
+import { useAuthStore } from "../store/authStore";
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:3000";
 
@@ -9,7 +9,8 @@ interface LeaderboardEntry { id: string; name: string; _count: { games: number }
 export default function LeaderboardScreen() {
   const [data, setData] = useState<LeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(true);
-  const { playerId } = useGameStore();
+  const { user } = useAuthStore();
+  const playerId = user?.uid ?? "";
 
   useEffect(() => {
     const fetchLeaderboard = async () => {

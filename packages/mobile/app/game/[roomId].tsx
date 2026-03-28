@@ -2,6 +2,7 @@ import { View, Text, TouchableOpacity, FlatList, StyleSheet } from "react-native
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect } from "react";
 import { useGameStore } from "../../store/gameStore";
+import { useAuthStore } from "../../store/authStore";
 import { useSocket } from "../../hooks/useSocket";
 import { isOwnPlayer } from "@conquer-card/contracts";
 import type { Card } from "@conquer-card/engine";
@@ -9,7 +10,8 @@ import type { Card } from "@conquer-card/engine";
 export default function GameScreen() {
   const { roomId } = useLocalSearchParams<{ roomId: string }>();
   const router = useRouter();
-  const { gameState, playerId, roundResult, turnInfo, error } = useGameStore();
+  const { gameState, roundResult, turnInfo, error } = useGameStore();
+  const playerId = useAuthStore(s => s.user?.uid ?? "");
   const { joinTable, signalReady, sendAction } = useSocket();
 
   useEffect(() => {

@@ -1,119 +1,70 @@
+// =============================================================================
+// useSocket.ts — Socket.io connection lifecycle + emit helpers
+//
+// Responsibilities (only these — nothing else):
+//   1. Create and maintain the socket connection authenticated with the app JWT
+//   2. Reconnect automatically when JWT changes or socket drops
+//   3. Expose emit helpers for all client → server events
+//   4. Expose the raw socket ref so useGameEvents can attach listeners
+//
+// Game event handling is intentionally NOT here — see useGameEvents.ts.
+//
+// Java analogy: like a WebSocket session manager bean — it owns the
+// transport layer but delegates message handling to listener classes.
+// =============================================================================
+
 import { useEffect, useRef } from "react";
 import { io, Socket } from "socket.io-client";
 import { useGameStore } from "../store/gameStore";
 import { useAuthStore } from "../store/authStore";
-import {
-  CLIENT_EVENTS,
-  SERVER_EVENTS,
-} from "@conquer-card/contracts";
-import type {
-  ClientGameState,
-  RoundStartPayload,
-  RoundOverPayload,
-  TurnChangedPayload,
-  TurnTimeoutPayload,
-  PlayerJoinedPayload,
-  PlayerLeftPayload,
-  PlayerDisconnectedPayload,
-  ActionRejectedPayload,
-  ErrorPayload,
-  EmojiReactionPayload,
-} from "@conquer-card/contracts";
+import { CLIENT_EVENTS } from "@conquer-card/contracts";
 import type { GameAction } from "@conquer-card/engine";
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:3000";
 
 export function useSocket() {
-  const socketRef = useRef<Socket | null>(null);
-  const {
-    setGameState,
-    setConnected,
-    setRoundResult,
-    setTurnInfo,
-    setError,
-  } = useGameStore();
+  const socketRef  = useRef<Socket | null>(null);
+  const { setConnected } = useGameStore();
   const jwt = useAuthStore(s => s.jwt);
 
   useEffect(() => {
-    // Auth: pass the app JWT (from authStore) in the Socket.io handshake.
-    // The server's io.use() middleware verifies this token on every connection.
-    // We use the app JWT (not the Firebase ID token directly) so the server
-    // only needs to verify one token type for both REST and WebSocket.
-    if (!jwt) return;                             // not authenticated — skip
+    if (!jwt) return;   // not authenticated — do not connect
 
     const socket = io(API_URL, {
       transports: ["websocket"],
-      auth: { token: jwt },   // ← required by server auth middleware
+      auth: { token: jwt },   // ← server auth middleware verifies this JWT
     });
     socketRef.current = socket;
 
     socket.on("connect",    () => setConnected(true));
     socket.on("disconnect", () => setConnected(false));
 
-    // Primary state update — personalised per-player payload from sanitizeForPlayer
-    socket.on(SERVER_EVENTS.STATE_UPDATE, (state: ClientGameState) => {
-      setGameState(state);
-    });
-
-    // Round lifecycle
-    socket.on(SERVER_EVENTS.ROUND_START, (_payload: RoundStartPayload) => {
-      // UI can react to round start independently (e.g. deal animation).
-      // State arrives via STATE_UPDATE immediately after.
-    });
-
-    socket.on(SERVER_EVENTS.ROUND_OVER, (payload: RoundOverPayload) => {
-      setRoundResult(payload);
-    });
-
-    // Turn timer info — lets the UI show a countdown bar
-    socket.on(SERVER_EVENTS.TURN_CHANGED, (payload: TurnChangedPayload) => {
-      setTurnInfo(payload);
-    });
-
-    socket.on(SERVER_EVENTS.TURN_TIMEOUT, (_payload: TurnTimeoutPayload) => {
-      // State arrives via STATE_UPDATE; UI can show a brief "timed out" toast.
-    });
-
-    // Player presence events — UI updates (seat indicators, etc.)
-    socket.on(SERVER_EVENTS.PLAYER_JOINED,       (_p: PlayerJoinedPayload)       => {});
-    socket.on(SERVER_EVENTS.PLAYER_LEFT,         (_p: PlayerLeftPayload)         => {});
-    socket.on(SERVER_EVENTS.PLAYER_DISCONNECTED, (_p: PlayerDisconnectedPayload) => {});
-    socket.on(SERVER_EVENTS.PLAYER_RECONNECTED,  (_p: { playerId: string })      => {});
-
-    // Emoji reactions
-    socket.on(SERVER_EVENTS.EMOJI_REACTION, (_p: EmojiReactionPayload) => {});
-
-    // Errors
-    socket.on(SERVER_EVENTS.ACTION_REJECTED, (p: ActionRejectedPayload) => {
-      setError(p.reason);
-    });
-    socket.on(SERVER_EVENTS.ERROR, (p: ErrorPayload) => {
-      setError(p.message);
-    });
-
     return () => {
       socket.disconnect();
       socketRef.current = null;
+      setConnected(false);
     };
-  }, [jwt]);  // reconnect when JWT changes (e.g. token refresh)
+  }, [jwt]);  // reconnect when JWT changes (login / token refresh)
 
-  // ── Emit helpers ────────────────────────────────────────────────────────────
+  // ── Emit helpers ─────────────────────────────────────────────────────────────
+  // All helpers check socketRef.current so they are safe to call even if the
+  // socket is not yet connected — the emit is silently dropped.
 
   const joinTable = (tableId: string) => {
     socketRef.current?.emit(CLIENT_EVENTS.JOIN_TABLE, { tableId });
+  };
+
+  const leaveTable = (tableId: string) => {
+    socketRef.current?.emit(CLIENT_EVENTS.LEAVE_TABLE, { tableId });
   };
 
   const signalReady = (tableId: string) => {
     socketRef.current?.emit(CLIENT_EVENTS.READY, { tableId });
   };
 
-  /** Send any validated GameAction. playerId is overridden by the server. */
+  /** Send any GameAction to the server.  playerId is set by the server from JWT. */
   const sendAction = (tableId: string, action: GameAction) => {
     socketRef.current?.emit(CLIENT_EVENTS.GAME_ACTION, { ...action, tableId });
-  };
-
-  const leaveTable = (tableId: string) => {
-    socketRef.current?.emit(CLIENT_EVENTS.LEAVE_TABLE, { tableId });
   };
 
   const sendEmoji = (tableId: string, emoji: string) => {
@@ -125,12 +76,12 @@ export function useSocket() {
   };
 
   return {
+    socket: socketRef.current,   // raw socket for useGameEvents
     joinTable,
+    leaveTable,
     signalReady,
     sendAction,
-    leaveTable,
     sendEmoji,
     toggleCamera,
-    socket: socketRef.current,
   };
 }
